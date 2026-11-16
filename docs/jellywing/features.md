@@ -100,6 +100,7 @@ cannot be marked unwatched.
 ## Branding
 
 The web client shows a JellyWing logo and name on the sign-in page, in the header and
-drawer, and on the splash screen. The server still reports its product
+drawer, and on the splash screen. The browser tab icon and the icon used when the web
+client is added to a phone's home screen are JellyWing's too. The server still reports its product
 name as "Jellyfin Server", because existing apps check that name to recognize a
 compatible server.

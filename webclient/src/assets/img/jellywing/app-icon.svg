@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="JellyWing">
+  <defs>
+    <linearGradient id="w" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#0E9F8E"/>
+      <stop offset="1" stop-color="#5BC8F5"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="#101820"/>
+  <g transform="translate(96 104) scale(4)">
+    <path d="M6 58 C10 30 34 10 66 8 C52 18 42 30 38 44 C30 46 18 50 6 58 Z" fill="url(#w)"/>
+    <path d="M22 62 C28 44 46 30 70 28 C60 36 54 46 52 56 C44 56 32 58 22 62 Z" fill="url(#w)" opacity="0.78"/>
+    <path d="M40 66 C46 54 58 46 74 46 C68 52 64 58 64 66 C56 64 48 64 40 66 Z" fill="url(#w)" opacity="0.56"/>
+  </g>
+</svg>

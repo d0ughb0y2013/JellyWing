@@ -33,6 +33,18 @@ The 12 web client has two home pages, `apps/legacy/controllers/home.js` and
 `apps/modern/routes/home.tsx`. The modern one is the default. A tab added to one must be
 added to the other.
 
+## Logo and icons
+
+The logo files are SVGs in `webclient/src/assets/img/jellywing/`. The browser tab and
+home-screen icons in its `favicons/` folder are rendered from `app-icon.svg`. After
+changing that file, from `webclient/`:
+
+```bash
+python3 scripts/makeJellyWingIcons.py
+```
+
+It needs `rsvg-convert` from librsvg.
+
 ## Taking in upstream changes
 
 The server follows Jellyfin's `release-12.z` branch:
