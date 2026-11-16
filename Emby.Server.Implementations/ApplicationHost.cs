@@ -17,6 +17,7 @@ using Emby.Naming.Common;
 using Emby.Naming.Video;
 using Emby.Photos;
 using Emby.Server.Implementations.Chapters;
+using Emby.Server.Implementations.CloudTwin;
 using Emby.Server.Implementations.Collections;
 using Emby.Server.Implementations.Configuration;
 using Emby.Server.Implementations.Cryptography;
@@ -545,6 +546,7 @@ namespace Emby.Server.Implementations
             serviceCollection.AddSingleton<OptimizedVersionStore>();
             serviceCollection.AddSingleton<IOptimizedVersionMaker, OptimizedVersionMaker>();
             serviceCollection.AddSingleton<IOptimizedVersionManager, OptimizedVersionManager>();
+            serviceCollection.AddSingleton<TwinPublisher>();
 
             serviceCollection.AddSingleton<IServerApplicationHost>(this);
             serviceCollection.AddSingleton(ApplicationPaths);

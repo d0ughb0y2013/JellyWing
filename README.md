@@ -26,7 +26,7 @@ Each feature is described in [docs/jellywing/features.md](docs/jellywing/feature
 - [Build and run it](docs/jellywing/building.md)
 - [API added by JellyWing](docs/jellywing/api.md)
 - [How the fork is maintained](docs/jellywing/maintaining.md)
-- [Cloud twin design](docs/jellywing/cloud-twin.md), for remote access without router setup (not built yet)
+- [Cloud twin](docs/jellywing/cloud-twin.md), for remote access without router setup. Publishing a library to cloud storage is built; the rest is designed
 
 ## Branches
 

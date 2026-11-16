@@ -1,7 +1,7 @@
 # Cloud twin: design
 
-Status: design only. Nothing described here is built yet. Two decisions are still open;
-they are listed at the end.
+Status: the first step, publishing, is built. The twin API, playback, play state sync and
+invitations are not. See [Build order](#build-order) for where things stand.
 
 ## Goal
 
@@ -135,16 +135,52 @@ carry its own license.
 
 ## Build order
 
-1. Publish one library to storage and write catalog records. No API yet; verify by
-   inspecting the store.
+1. **Done.** Publish chosen libraries to storage and write catalog records. See
+   [Publishing today](#publishing-today).
 2. Twin API for sign-in, browsing and artwork. Verify with the web client pointed at it.
 3. Playback through signed links, and progress reporting.
 4. Play state and watchlist sync in both directions.
 5. Invitations.
 
-## Open decisions
+## Decisions made
 
-| Decision | Options | Effect |
+| Decision | Choice | Effect |
 |---|---|---|
-| Storage provider | A general cloud with per-gigabyte transfer charges, or an object store with free transfer | Sets the running cost, and which function and database services the twin uses |
-| What to publish | The whole library, or chosen libraries | Sets the storage size and how long the first upload takes |
+| Storage | An object store that does not charge for data transfer out, reached through the S3-compatible API | Running cost is storage only. Any S3-compatible store works; nothing is tied to one provider |
+| What to publish | Libraries named in the settings; nothing by default | Storage size and first upload time are whatever the chosen libraries need |
+
+## Publishing today
+
+The scheduled task *Publish to cloud twin* sends the named libraries to the store. It has
+no default schedule and does nothing until it is set up.
+
+| Setting | Meaning |
+|---|---|
+| `twin:libraries` | Names of the libraries to publish, separated by commas |
+| `twin:s3:endpoint` | Address of the S3-compatible store, for example `https://<account>.r2.cloudflarestorage.com` |
+| `twin:s3:bucket` | The bucket to publish into |
+| `twin:s3:accessKeyId`, `twin:s3:secretAccessKey` | The store's credentials |
+| `twin:s3:region` | The region; `auto` if not set, which suits stores without regions |
+| `twin:folder` | A local folder to publish into instead of a store, for trying it out |
+
+Settings are read from the environment with the prefix `JELLYFIN_` and `__` between the
+parts, for example `JELLYFIN_twin__s3__bucket`. Keep the credentials in the environment of
+the server process; they do not belong in any file in this repository.
+
+What lands in the store:
+
+| Key | Content |
+|---|---|
+| `media/<item id>.mp4` | The playable file: the optimized version, or the original when it already plays everywhere |
+| `images/<item id>.<ext>` | The item's poster or thumbnail |
+| `catalog/<item id>.json` | The item's record: name, type, series and season, numbers, description, running time, genres, and the keys above |
+| `catalog/index.json` | The ids of every published item |
+
+Movies, series, seasons and episodes are published. A video that still needs an optimized
+version is asked for one and published on a later run. Only what changed since the last
+run is sent, and items that left the library are removed from the store. What was
+published is remembered in `cloud-twin/state.json` under the data folder; pointing the
+server at a different store starts from nothing.
+
+Limits today: a file larger than 5 GB is not uploaded, since that needs a multipart
+upload; uploads are not resumable; nothing is encrypted beyond the connection.

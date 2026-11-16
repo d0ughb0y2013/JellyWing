@@ -18,6 +18,7 @@ tracked.
 | Area | Location |
 |---|---|
 | Watchlist | `Jellyfin.Server.Implementations/Users/WatchlistManager.cs`, `Jellyfin.Server.Implementations/Users/WatchlistWatchedCleaner.cs`, `Jellyfin.Api/Controllers/UserWatchlistController.cs` |
+| Cloud twin publishing | `Emby.Server.Implementations/CloudTwin/`, `Emby.Server.Implementations/ScheduledTasks/Tasks/CloudTwinPublishTask.cs` |
 | Viewing stats | `Jellyfin.Server.Implementations/Users/ViewingStatsService.cs`, `Jellyfin.Api/Controllers/UserStatsController.cs` |
 | Optimized versions | `Emby.Server.Implementations/Library/OptimizedVersions/`, `MediaBrowser.Controller/Library/OptimizedVersion.cs`, `Jellyfin.Api/Controllers/OptimizedVersionsController.cs` |
 | Version ordering for playback | `Jellyfin.Api/Helpers/MediaInfoHelper.cs` |

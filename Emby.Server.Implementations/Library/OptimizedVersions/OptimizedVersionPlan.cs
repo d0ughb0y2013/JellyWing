@@ -31,12 +31,13 @@ public sealed class OptimizedVersionPlan
         VideoRangeType.DOVIWithHLG
     ];
 
-    private OptimizedVersionPlan(string? skipReason, bool copyVideo, bool copyAudio, bool toneMap = false)
+    private OptimizedVersionPlan(string? skipReason, bool copyVideo, bool copyAudio, bool toneMap = false, bool playsAsIs = false)
     {
         SkipReason = skipReason;
         CopyVideo = copyVideo;
         CopyAudio = copyAudio;
         ToneMap = toneMap;
+        PlaysAsIs = playsAsIs;
     }
 
     /// <summary>
@@ -48,6 +49,12 @@ public sealed class OptimizedVersionPlan
     /// Gets a value indicating whether an optimized version should be made.
     /// </summary>
     public bool IsNeeded => SkipReason is null;
+
+    /// <summary>
+    /// Gets a value indicating whether the file needs no optimized version because it already
+    /// plays everywhere, as opposed to one that cannot be made.
+    /// </summary>
+    public bool PlaysAsIs { get; }
 
     /// <summary>
     /// Gets a value indicating whether the video stream is kept as it is.
@@ -105,7 +112,7 @@ public sealed class OptimizedVersionPlan
 
         if (copyVideo && copyAudio && IsCompatibleContainer(container))
         {
-            return new OptimizedVersionPlan("it already plays everywhere", copyVideo, copyAudio);
+            return new OptimizedVersionPlan("it already plays everywhere", copyVideo, copyAudio, playsAsIs: true);
         }
 
         return new OptimizedVersionPlan(null, copyVideo, copyAudio);
