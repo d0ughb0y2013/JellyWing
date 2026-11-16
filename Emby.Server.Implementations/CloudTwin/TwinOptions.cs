@@ -23,6 +23,7 @@ public class TwinOptions
         S3Region = configuration["twin:s3:region"] ?? "auto";
         S3AccessKeyId = configuration["twin:s3:accessKeyId"];
         S3SecretAccessKey = configuration["twin:s3:secretAccessKey"];
+        S3SessionToken = configuration["twin:s3:sessionToken"];
         Libraries = (configuration["twin:libraries"] ?? string.Empty)
             .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
     }
@@ -56,6 +57,11 @@ public class TwinOptions
     /// Gets the secret access key.
     /// </summary>
     public string? S3SecretAccessKey { get; }
+
+    /// <summary>
+    /// Gets the session token that goes with temporary credentials, if they are temporary.
+    /// </summary>
+    public string? S3SessionToken { get; }
 
     /// <summary>
     /// Gets the names of the libraries to publish. Nothing is published unless named here.

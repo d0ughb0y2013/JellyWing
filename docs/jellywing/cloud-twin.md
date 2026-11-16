@@ -160,12 +160,18 @@ no default schedule and does nothing until it is set up.
 | `twin:s3:endpoint` | Address of the S3-compatible store, for example `https://<account>.r2.cloudflarestorage.com` |
 | `twin:s3:bucket` | The bucket to publish into |
 | `twin:s3:accessKeyId`, `twin:s3:secretAccessKey` | The store's credentials |
+| `twin:s3:sessionToken` | The session token, when the credentials are temporary ones |
 | `twin:s3:region` | The region; `auto` if not set, which suits stores without regions |
 | `twin:folder` | A local folder to publish into instead of a store, for trying it out |
 
 Settings are read from the environment with the prefix `JELLYFIN_` and `__` between the
 parts, for example `JELLYFIN_twin__s3__bucket`. Keep the credentials in the environment of
 the server process; they do not belong in any file in this repository.
+
+For Amazon S3, `deploy/cloud-twin/s3-store.yaml` is a CloudFormation template for a
+private, encrypted bucket; its outputs are the values for the endpoint, bucket and region
+settings. S3 charges for data transferred out, so it suits trying the twin out more than
+serving a busy library.
 
 What lands in the store:
 

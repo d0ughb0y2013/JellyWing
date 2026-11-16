@@ -45,6 +45,20 @@ public class S3SignerTests
         Assert.NotEqual(SignWith(S3Signer.EmptyPayloadHash), SignWith(new string('a', 64)));
     }
 
+    [Fact]
+    public void Sign_SessionTokenHeader_IsCoveredByTheSignature()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Put, "https://store.example/bucket/catalog/a.json");
+        request.Headers.TryAddWithoutValidation("x-amz-security-token", "temporary-token");
+
+        S3Signer.Sign(request, S3Signer.EmptyPayloadHash, "auto", "key", "secret", new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.Contains(
+            "SignedHeaders=host;x-amz-content-sha256;x-amz-date;x-amz-security-token,",
+            request.Headers.GetValues("Authorization").Single(),
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("media/abc.mp4", "media/abc.mp4")]
     [InlineData("images/a b+c.jpg", "images/a%20b%2Bc.jpg")]

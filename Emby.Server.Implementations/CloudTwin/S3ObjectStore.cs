@@ -78,6 +78,12 @@ public class S3ObjectStore : IObjectStore
             content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
         }
 
+        // Temporary credentials come with a token, which travels in a signed header.
+        if (!string.IsNullOrEmpty(_options.S3SessionToken))
+        {
+            request.Headers.TryAddWithoutValidation("x-amz-security-token", _options.S3SessionToken);
+        }
+
         S3Signer.Sign(request, payloadHash, _options.S3Region, _options.S3AccessKeyId!, _options.S3SecretAccessKey!, DateTime.UtcNow);
 
         using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
