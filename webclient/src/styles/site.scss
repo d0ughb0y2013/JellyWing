@@ -18,7 +18,7 @@
     animation: fadein 0.5s;
     width: 30%;
     height: 30%;
-    background-image: url(@jellyfin/ux-web/icon-transparent.png);
+    background-image: url(assets/img/jellywing/icon.svg);
     background-position: center center;
     background-repeat: no-repeat;
     background-size: contain;
@@ -31,7 +31,7 @@
 @media screen
     and (min-device-width: 992px) {
     .splashLogo {
-        background-image: url(@jellyfin/ux-web/banner-light.png);
+        background-image: url(assets/img/jellywing/banner-light.svg);
     }
 }
 
@@ -181,4 +181,12 @@ form {
 .margin-auto-y {
     margin-top: auto;
     margin-bottom: auto;
+}
+
+.loginBrand {
+    height: 3.6em;
+    margin: 0 auto 1.6em;
+    background-position: center center;
+    background-repeat: no-repeat;
+    background-size: contain;
 }
