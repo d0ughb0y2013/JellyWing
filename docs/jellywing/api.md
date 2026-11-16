@@ -20,6 +20,32 @@ access are returned, and `TotalRecordCount` counts those.
 
 `POST` returns `404` when the item does not exist or the user cannot see it.
 
+## Viewing stats
+
+| Method | Path | Result |
+|---|---|---|
+| `GET` | `/UserStats` | A summary of what a user watched in a year |
+
+It accepts `userId`, which only an administrator may set to another user, and `year`.
+Without `year`, the most recent year in which the user watched anything is used.
+
+```json
+{
+  "Year": 2026,
+  "Years": [2026, 2025],
+  "Movies": 12,
+  "Episodes": 140,
+  "WatchTimeTicks": 3672000000000,
+  "BusiestMonth": 11,
+  "TopSeries": [{ "Name": "Signal Fire", "Id": "...", "Count": 24 }],
+  "TopGenres": [{ "Name": "Drama", "Count": 9 }]
+}
+```
+
+Only movies and episodes marked as played are counted, each in the year it was last
+played. `TopSeries` counts episodes. `TopGenres` counts each movie and each series once.
+Both lists hold at most five entries.
+
 ## Optimized versions
 
 | Method | Path | Result |

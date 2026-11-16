@@ -23,6 +23,17 @@ or a single episode can go on it.
 Entries are stored in a table the server already has, so the watchlist needs no database
 migration.
 
+## Viewing stats
+
+The home page has a *Stats* tab, also linked from the toolbar and the side drawer. For a
+chosen year it shows the hours watched, the number of movies and episodes, the busiest
+month, the shows with the most episodes watched, and the genres watched most.
+
+The numbers come from the play state the server already keeps, so nothing extra has to be
+installed and history from before the upgrade is included. The server keeps only the last
+time each item was played, so an item counts in the year it was last watched, and
+watching something twice counts once.
+
 ## Optimized versions
 
 Some videos cannot be played directly by most devices: the wrong container, a video codec

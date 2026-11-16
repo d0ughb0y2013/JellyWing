@@ -11,5 +11,9 @@ export const MetaView: Record<string, BaseItemDto> = {
     Watchlist: {
         Id: 'watchlist',
         Name: 'Watchlist'
+    },
+    Stats: {
+        Id: 'stats',
+        Name: 'HeaderViewingStats'
     }
 };

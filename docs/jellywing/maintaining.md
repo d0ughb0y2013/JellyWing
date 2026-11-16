@@ -18,6 +18,7 @@ tracked.
 | Area | Location |
 |---|---|
 | Watchlist | `Jellyfin.Server.Implementations/Users/WatchlistManager.cs`, `Jellyfin.Server.Implementations/Users/WatchlistWatchedCleaner.cs`, `Jellyfin.Api/Controllers/UserWatchlistController.cs` |
+| Viewing stats | `Jellyfin.Server.Implementations/Users/ViewingStatsService.cs`, `Jellyfin.Api/Controllers/UserStatsController.cs` |
 | Optimized versions | `Emby.Server.Implementations/Library/OptimizedVersions/`, `MediaBrowser.Controller/Library/OptimizedVersion.cs`, `Jellyfin.Api/Controllers/OptimizedVersionsController.cs` |
 | Version ordering for playback | `Jellyfin.Api/Helpers/MediaInfoHelper.cs` |
 | Optimized versions task | `Emby.Server.Implementations/ScheduledTasks/Tasks/OptimizedVersionsTask.cs` |
@@ -26,7 +27,8 @@ tracked.
 | Ancestor row guard | `Jellyfin.Server.Implementations/Item/ItemPersistenceService.cs` |
 
 In the web client: `webclient/src/lib/watchlist.js`, `webclient/src/lib/optimizedVersion.js`,
-`webclient/src/apps/legacy/controllers/watchlist.js`, `webclient/src/components/itemContextMenu.js`
+`webclient/src/lib/viewingStats.js`, `webclient/src/apps/legacy/controllers/watchlist.js`,
+`webclient/src/apps/legacy/controllers/stats.js`, `webclient/src/components/itemContextMenu.js`
 and the logo files in `webclient/src/assets/img/jellywing/`.
 
 The 12 web client has two home pages, `apps/legacy/controllers/home.js` and

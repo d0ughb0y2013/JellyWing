@@ -12,6 +12,7 @@ README is kept in [README.jellyfin.md](README.jellyfin.md).
 | Feature | What you get |
 |---|---|
 | Watchlist | A per-user list of things to watch, with its own tab on the home page. |
+| Viewing stats | Hours watched, top shows and top genres for any year, from the history the server already keeps. |
 | Optimized versions | A copy of each awkward video that plays on any device, made ahead of time, so playback does not convert it live. |
 | Optimized downloads | Ask for a compatible copy of one video and download it when it is ready. |
 | Ready-to-use plugins | A new server installs webhooks, playback statistics and intro skipping during first setup. |

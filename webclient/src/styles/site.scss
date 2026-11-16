@@ -190,3 +190,61 @@ form {
     background-repeat: no-repeat;
     background-size: contain;
 }
+
+.jellywingStatsHeader {
+    display: flex;
+    align-items: center;
+    gap: 1em;
+
+    select {
+        font: inherit;
+        padding: 0.3em 0.6em;
+        border-radius: 0.3em;
+    }
+}
+
+.jellywingStatCards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1em;
+    margin: 1em 0 2em;
+}
+
+.jellywingStat {
+    min-width: 9em;
+    padding: 1em 1.4em;
+    border-radius: 0.5em;
+    background: rgba(128, 128, 128, 0.16);
+}
+
+.jellywingStatValue {
+    font-size: 2em;
+    font-weight: 600;
+}
+
+.jellywingStatLabel {
+    opacity: 0.75;
+}
+
+.jellywingStatLists {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3em;
+}
+
+.jellywingStatList {
+    min-width: 16em;
+
+    ol {
+        margin: 0.5em 0 0;
+        padding-left: 1.4em;
+    }
+
+    li {
+        padding: 0.3em 0;
+    }
+
+    li span + span {
+        margin-left: 0.8em;
+    }
+}

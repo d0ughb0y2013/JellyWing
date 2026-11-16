@@ -50,6 +50,8 @@ const Home = () => {
             name: globalize.translate('Favorites')
         }, {
             name: globalize.translate('Watchlist')
+        }, {
+            name: globalize.translate('HeaderViewingStats')
         }];
     };
 
@@ -75,6 +77,10 @@ const Home = () => {
 
             case 2:
                 depends = 'watchlist';
+                break;
+
+            case 3:
+                depends = 'stats';
         }
 
         return import(/* webpackChunkName: "[request]" */ `../../../apps/legacy/controllers/${depends}`).then(({ default: ControllerFactory }) => {
@@ -187,6 +193,7 @@ const Home = () => {
                     <div className='sections'></div>
                 </div>
                 <div className='tabContent pageTabContent' id='watchlistTab' data-index='2'></div>
+                <div className='tabContent pageTabContent' id='statsTab' data-index='3'></div>
             </Page>
         </div>
     );

@@ -31,6 +31,8 @@ class HomeView extends TabbedView {
             name: globalize.translate('Favorites')
         }, {
             name: globalize.translate('Watchlist')
+        }, {
+            name: globalize.translate('HeaderViewingStats')
         }];
     }
 
@@ -52,6 +54,10 @@ class HomeView extends TabbedView {
 
             case 2:
                 depends = 'watchlist';
+                break;
+
+            case 3:
+                depends = 'stats';
         }
 
         const instance = this;

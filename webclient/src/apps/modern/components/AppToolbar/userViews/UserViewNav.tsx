@@ -2,6 +2,7 @@ import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models/base
 import { BaseItemKind } from '@jellyfin/sdk/lib/generated-client/models/base-item-kind';
 import { CollectionType } from '@jellyfin/sdk/lib/generated-client/models/collection-type';
 import ArrowDropDown from '@mui/icons-material/ArrowDropDown';
+import BarChart from '@mui/icons-material/BarChart';
 import Bookmark from '@mui/icons-material/Bookmark';
 import Favorite from '@mui/icons-material/Favorite';
 import Button from '@mui/material/Button/Button';
@@ -53,6 +54,10 @@ const getCurrentUserView = (
 
     if (pathname === HOME_PATH && tab === 2) {
         return MetaView.Watchlist;
+    }
+
+    if (pathname === HOME_PATH && tab === 3) {
+        return MetaView.Stats;
     }
 
     // eslint-disable-next-line sonarjs/different-types-comparison
@@ -146,6 +151,16 @@ const UserViewNav = () => {
                 to='/home?tab=2'
             >
                 {globalize.translate(MetaView.Watchlist.Name)}
+            </Button>
+
+            <Button
+                variant='text'
+                color={(currentUserView?.Id === MetaView.Stats.Id) ? 'primary' : 'inherit'}
+                startIcon={<BarChart />}
+                component={Link}
+                to='/home?tab=3'
+            >
+                {globalize.translate(MetaView.Stats.Name)}
             </Button>
 
             {primaryNavItems?.map(navItem => {

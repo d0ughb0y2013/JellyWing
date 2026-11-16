@@ -1,3 +1,4 @@
+import BarChart from '@mui/icons-material/BarChart';
 import Bookmark from '@mui/icons-material/Bookmark';
 import Favorite from '@mui/icons-material/Favorite';
 import Home from '@mui/icons-material/Home';
@@ -60,6 +61,14 @@ const MainDrawerContent = () => {
                             <Bookmark />
                         </ListItemIcon>
                         <ListItemText primary={globalize.translate('Watchlist')} />
+                    </ListItemLink>
+                </ListItem>
+                <ListItem disablePadding>
+                    <ListItemLink to='/home?tab=3'>
+                        <ListItemIcon>
+                            <BarChart />
+                        </ListItemIcon>
+                        <ListItemText primary={globalize.translate('HeaderViewingStats')} />
                     </ListItemLink>
                 </ListItem>
             </List>
