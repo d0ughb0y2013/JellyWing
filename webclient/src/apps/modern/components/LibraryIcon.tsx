@@ -1,5 +1,6 @@
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client';
 import { CollectionType } from '@jellyfin/sdk/lib/generated-client/models/collection-type';
+import Bookmark from '@mui/icons-material/Bookmark';
 import Favorite from '@mui/icons-material/Favorite';
 import Movie from '@mui/icons-material/Movie';
 import MusicNote from '@mui/icons-material/MusicNote';
@@ -26,6 +27,10 @@ const LibraryIcon: FC<LibraryIconProps> = ({
 }) => {
     if (item.Id === MetaView.Favorites.Id) {
         return <Favorite />;
+    }
+
+    if (item.Id === MetaView.Watchlist.Id) {
+        return <Bookmark />;
     }
 
     switch (item.CollectionType) {

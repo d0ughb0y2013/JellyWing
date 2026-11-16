@@ -7,5 +7,9 @@ export const MetaView: Record<string, BaseItemDto> = {
     Favorites: {
         Id: 'favorites',
         Name: 'Favorites'
+    },
+    Watchlist: {
+        Id: 'watchlist',
+        Name: 'Watchlist'
     }
 };

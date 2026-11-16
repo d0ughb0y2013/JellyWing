@@ -1,3 +1,4 @@
+import Bookmark from '@mui/icons-material/Bookmark';
 import Favorite from '@mui/icons-material/Favorite';
 import Home from '@mui/icons-material/Home';
 import Divider from '@mui/material/Divider';
@@ -51,6 +52,14 @@ const MainDrawerContent = () => {
                             <Favorite />
                         </ListItemIcon>
                         <ListItemText primary={globalize.translate('Favorites')} />
+                    </ListItemLink>
+                </ListItem>
+                <ListItem disablePadding>
+                    <ListItemLink to='/home?tab=2'>
+                        <ListItemIcon>
+                            <Bookmark />
+                        </ListItemIcon>
+                        <ListItemText primary={globalize.translate('Watchlist')} />
                     </ListItemLink>
                 </ListItem>
             </List>

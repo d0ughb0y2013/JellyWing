@@ -14,7 +14,41 @@ import { appRouter } from './router/appRouter';
 import itemHelper, { canEditPlaylist } from './itemHelper';
 import { playbackManager } from './playback/playbackmanager';
 import toast from './toast/toast';
+import { addToWatchlist, isOnWatchlist, removeFromWatchlist } from '../lib/watchlist';
 import * as userSettings from '../scripts/settings/userSettings';
+
+/** Item types that can be put on the watchlist. */
+const WATCHLIST_TYPES = [
+    BaseItemKind.BoxSet,
+    BaseItemKind.Episode,
+    BaseItemKind.Movie,
+    BaseItemKind.MusicVideo,
+    BaseItemKind.Season,
+    BaseItemKind.Series,
+    BaseItemKind.Video
+];
+
+/**
+ * Builds the watchlist command for an item, or nothing if the server has no watchlist.
+ */
+async function getWatchlistCommand(item) {
+    if (!WATCHLIST_TYPES.includes(item.Type) || !item.ServerId) return null;
+
+    try {
+        const listed = await isOnWatchlist(ServerConnections.getApiClient(item.ServerId), item.Id);
+        return listed ? {
+            name: globalize.translate('RemoveFromWatchlist'),
+            id: 'removefromwatchlist',
+            icon: 'bookmark_remove'
+        } : {
+            name: globalize.translate('AddToWatchlist'),
+            id: 'addtowatchlist',
+            icon: 'bookmark_add'
+        };
+    } catch {
+        return null;
+    }
+}
 
 /** Item types that support downloading all children. */
 const DOWNLOAD_ALL_TYPES = [
@@ -154,6 +188,11 @@ export async function getCommands(options) {
                 id: 'addtoplaylist',
                 icon: 'playlist_add'
             });
+        }
+
+        const watchlistCommand = options.watchlist !== false && await getWatchlistCommand(item);
+        if (watchlistCommand) {
+            commands.push(watchlistCommand);
         }
     }
 
@@ -412,6 +451,18 @@ function executeCommand(item, id, options) {
                         serverId: serverId
                     }).then(getResolveFunction(resolve, id, true), getResolveFunction(resolve, id));
                 });
+                break;
+            case 'addtowatchlist':
+                addToWatchlist(apiClient, itemId).then(() => {
+                    toast(globalize.translate('MessageAddedToWatchlist'));
+                    getResolveFunction(resolve, id, true)();
+                }, getResolveFunction(resolve, id));
+                break;
+            case 'removefromwatchlist':
+                removeFromWatchlist(apiClient, itemId).then(() => {
+                    toast(globalize.translate('MessageRemovedFromWatchlist'));
+                    getResolveFunction(resolve, id, true)();
+                }, getResolveFunction(resolve, id));
                 break;
             case 'download':
                 import('../scripts/fileDownloader').then((fileDownloader) => {
