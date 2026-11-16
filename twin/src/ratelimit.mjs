@@ -89,11 +89,15 @@ export function createSignInLimiter({ store, now }) {
     }
 
     async function keysFor(name, address) {
-        const cleanName = String(name || '').trim().toLowerCase().slice(0, 200);
-        return [
-            { key: `state/limits/name-${(await sha256Hex(cleanName)).slice(0, 32)}.json`, max: MAX_FAILURES_PER_NAME },
-            { key: `state/limits/address-${(await sha256Hex(network(address))).slice(0, 32)}.json`, max: MAX_FAILURES_PER_ADDRESS }
-        ];
+        const keys = [{ key: `state/limits/address-${(await sha256Hex(network(address))).slice(0, 32)}.json`, max: MAX_FAILURES_PER_ADDRESS }];
+
+        // With no name, as when an invitation code is tried, only the caller is counted.
+        if (name !== null) {
+            const cleanName = String(name || '').trim().toLowerCase().slice(0, 200);
+            keys.unshift({ key: `state/limits/name-${(await sha256Hex(cleanName)).slice(0, 32)}.json`, max: MAX_FAILURES_PER_NAME });
+        }
+
+        return keys;
     }
 
     return {

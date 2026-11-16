@@ -549,6 +549,7 @@ namespace Emby.Server.Implementations
             serviceCollection.AddSingleton<TwinPublisher>();
             serviceCollection.AddSingleton<TwinWebClientPublisher>();
             serviceCollection.AddSingleton<TwinPlayStateSync>();
+            serviceCollection.AddSingleton<TwinInvitationSync>();
 
             serviceCollection.AddSingleton<IServerApplicationHost>(this);
             serviceCollection.AddSingleton(ApplicationPaths);

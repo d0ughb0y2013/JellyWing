@@ -16,6 +16,7 @@ namespace Emby.Server.Implementations.ScheduledTasks.Tasks;
 public class CloudTwinPlayStateTask : IScheduledTask
 {
     private readonly TwinPlayStateSync _sync;
+    private readonly TwinInvitationSync _invitations;
     private readonly IConfiguration _configuration;
     private readonly IHttpClientFactory _httpClientFactory;
 
@@ -23,11 +24,13 @@ public class CloudTwinPlayStateTask : IScheduledTask
     /// Initializes a new instance of the <see cref="CloudTwinPlayStateTask"/> class.
     /// </summary>
     /// <param name="sync">The play state sync.</param>
+    /// <param name="invitations">The invitation sync.</param>
     /// <param name="configuration">The startup configuration.</param>
     /// <param name="httpClientFactory">The HTTP client factory.</param>
-    public CloudTwinPlayStateTask(TwinPlayStateSync sync, IConfiguration configuration, IHttpClientFactory httpClientFactory)
+    public CloudTwinPlayStateTask(TwinPlayStateSync sync, TwinInvitationSync invitations, IConfiguration configuration, IHttpClientFactory httpClientFactory)
     {
         _sync = sync;
+        _invitations = invitations;
         _configuration = configuration;
         _httpClientFactory = httpClientFactory;
     }
@@ -36,7 +39,7 @@ public class CloudTwinPlayStateTask : IScheduledTask
     public string Name => "Sync play state with cloud twin";
 
     /// <inheritdoc />
-    public string Description => "Brings home what was watched on the cloud twin and sends it what was watched at home, along with favorites and watchlists. Does nothing until the cloud twin is set up.";
+    public string Description => "Brings home what was watched on the cloud twin and sends it what was watched at home, along with favorites and watchlists, and makes accounts for people invited on the twin. Does nothing until the cloud twin is set up.";
 
     /// <inheritdoc />
     public string Category => "Library";
@@ -48,13 +51,23 @@ public class CloudTwinPlayStateTask : IScheduledTask
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
         var options = new TwinOptions(_configuration);
-        if (!options.IsConfigured || !options.SyncPlayState)
+        if (!options.IsConfigured)
         {
             return;
         }
 
         var (store, target) = TwinStoreFactory.Create(options, _httpClientFactory.CreateClient(NamedClient.Default));
-        await _sync.SyncAsync(store, target, cancellationToken).ConfigureAwait(false);
+
+        // Accounts first, so someone who was just invited has their play state synced in the same run.
+        if (options.AcceptInvitations)
+        {
+            await _invitations.SyncAsync(store, options.Libraries, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (options.SyncPlayState)
+        {
+            await _sync.SyncAsync(store, target, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc />

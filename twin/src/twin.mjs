@@ -4,6 +4,8 @@
 // It is written against web-standard Request and Response so the same code runs behind
 // a cloud function, in a worker, and in the local server in local.mjs.
 
+import { createInvitations, InvitationError } from './invitations.mjs';
+import { acceptPage, invitePage } from './pages.mjs';
 import { createSignInLimiter } from './ratelimit.mjs';
 import { createPlayState, episodesUnder, nextUp, resumeItems, userDataOf, viewingStats, watchlistItems } from './playstate.mjs';
 
@@ -66,12 +68,13 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
     const cache = {};
     const playState = createPlayState({ store, now });
     const signInLimiter = createSignInLimiter({ store, now });
+    const invitations = createInvitations({ store, now });
     const NO_STATE = { Items: {}, Watchlist: {} };
     let serverId;
 
-    async function cached(key) {
+    async function cached(key, fresh = false) {
         const entry = cache[key];
-        if (entry && now() - entry.at < CACHE_MS) return entry.value;
+        if (!fresh && entry && now() - entry.at < CACHE_MS) return entry.value;
         const value = (await store.getJson(key)) || [];
         cache[key] = { at: now(), value };
         return value;
@@ -107,6 +110,106 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
         }
 
         return claims.e > now() ? { Id: claims.u, Name: claims.n } : null;
+    }
+
+    // A token is only as good as the account behind it: someone removed at home is out here too.
+    async function resolveUser(claims) {
+        const published = async (id, fresh) => {
+            const found = (await cached('auth/users.json', fresh)).find(u => sameId(u.Id, id));
+            return found ? { Id: cleanId(found.Id), Name: found.Name, IsAdministrator: !!found.IsAdministrator } : null;
+        };
+
+        const known = await published(claims.Id);
+        if (known) return known;
+
+        // Otherwise someone who came in by invitation. Until the home server has made their
+        // account they go by the id they were given here; afterwards by the one from home.
+        // Read afresh each time: the moment home takes over, the old id must stop being used.
+        const invited = await invitations.userByFirstId(claims.Id);
+        if (!invited) return null;
+        if (!invited.HomeId) return invited.Password ? { Id: invited.Id, Name: invited.Name, IsAdministrator: false } : null;
+        return (await published(invited.HomeId)) || published(invited.HomeId, true);
+    }
+
+    const tooMany = wait => {
+        const minutes = Math.ceil(wait / 60000);
+        return new Response(JSON.stringify({ error: `Too many attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.` }), {
+            status: 429,
+            headers: { 'Content-Type': 'application/json; charset=utf-8', 'Retry-After': String(Math.ceil(wait / 1000)), ...cors }
+        });
+    };
+
+    const escapeHtml = text => String(text).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+    const html = page => new Response(page, {
+        status: 200,
+        headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-store',
+            'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+            'Referrer-Policy': 'no-referrer',
+            'X-Content-Type-Options': 'nosniff'
+        }
+    });
+
+    // What an invited person may do before they have an account.
+    async function invitationRoutes(route, { request, segments, clientAddress }) {
+        if (route('GET', 'invite')) return html(invitePage(escapeHtml(serverName)));
+        if (route('GET', 'invite', 'accept')) return html(acceptPage(escapeHtml(serverName)));
+
+        const checking = route('GET', 'twin', 'invitations', 'check', '*');
+        if (!checking && !route('POST', 'twin', 'invitations', 'accept')) return null;
+
+        // Codes cannot be guessed, but there is no reason to let anyone try at speed.
+        const wait = await signInLimiter.waitFor(null, clientAddress);
+        if (wait > 0) return tooMany(wait);
+
+        if (checking) {
+            const answer = await invitations.check(decodeURIComponent(segments[3]));
+            if (!answer.Valid) await signInLimiter.failed(null, clientAddress);
+            return json(answer);
+        }
+
+        let body;
+        try {
+            body = await request.json();
+        } catch {
+            return json({ error: 'A name and a password are required.' }, 400);
+        }
+
+        try {
+            const taken = (await cached('auth/users.json', true)).map(u => u.Name);
+            const made = await invitations.accept(body.Code, body.Name, body.Password, taken);
+            return json({ Name: made.Name });
+        } catch (error) {
+            if (!(error instanceof InvitationError)) throw error;
+            await signInLimiter.failed(null, clientAddress);
+            return json({ error: error.message }, 400);
+        }
+    }
+
+    // Making, listing and withdrawing invitations, for administrators.
+    async function invitationAdmin(route, { request, segments, user }) {
+        if (!user.IsAdministrator) return json({ error: 'Only an administrator can invite people.' }, 403);
+
+        try {
+            if (route('GET', 'twin', 'invitations')) return json(await invitations.list());
+            if (route('DELETE', 'twin', 'invitations', '*')) return (await invitations.revoke(segments[2])) ? empty() : notFound();
+            if (route('POST', 'twin', 'invitations')) {
+                let body = {};
+                try {
+                    body = await request.json();
+                } catch {
+                    // No body: the usual length.
+                }
+
+                return json(await invitations.create(user.Name, body.Days));
+            }
+        } catch (error) {
+            if (!(error instanceof InvitationError)) throw error;
+            return json({ error: error.message }, 400);
+        }
+
+        return notFound();
     }
 
     function tokenFrom(request, url) {
@@ -565,16 +668,19 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
 
         // Past the limit the password is not even looked at, right or wrong.
         const wait = await signInLimiter.waitFor(body.Username, clientAddress);
-        if (wait > 0) {
-            const minutes = Math.ceil(wait / 60000);
-            return new Response(JSON.stringify({ error: `Too many sign-in attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.` }), {
-                status: 429,
-                headers: { 'Content-Type': 'application/json; charset=utf-8', 'Retry-After': String(Math.ceil(wait / 1000)), ...cors }
-            });
-        }
+        if (wait > 0) return tooMany(wait);
 
-        const users = await cached('auth/users.json');
-        const user = users.find(u => (u.Name || '').toLowerCase() === String(body.Username || '').toLowerCase());
+        const byName = list => list.find(u => (u.Name || '').toLowerCase() === String(body.Username || '').toLowerCase());
+        let user = byName(await cached('auth/users.json'));
+        if (!user) {
+            // Perhaps someone who came in by invitation: waiting for their account at home, or just given one.
+            const invited = await invitations.userByName(body.Username).catch(() => null);
+            if (invited?.HomeId) {
+                user = byName(await cached('auth/users.json', true));
+            } else if (invited?.Password) {
+                user = { Id: invited.Id, Name: invited.Name, Password: invited.Password };
+            }
+        }
 
         // The check runs even for an unknown name, so the answer takes as long either way.
         const ok = await verifyPassword(String(body.Pw ?? ''), user?.Password || '$PBKDF2-SHA512$iterations=210000$00$00');
@@ -625,6 +731,9 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
         // Live updates need a connection that stays open, which the twin does not keep.
         if (route('GET', 'socket')) return notFound();
 
+        const invitation = await invitationRoutes(route, { request, segments, clientAddress });
+        if (invitation) return invitation;
+
         if (method === 'GET' && (url.pathname === '/' || url.pathname === '/web')) return redirect('/web/');
         if (method === 'GET' && lower[0] === 'web') return webFile(url.pathname, url.search);
 
@@ -636,8 +745,11 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
             return record?.ImageKey ? redirect(await store.signedUrl(record.ImageKey, MEDIA_LINK_SECONDS)) : notFound();
         }
 
-        const user = await readToken(tokenFrom(request, url));
+        const claims = await readToken(tokenFrom(request, url));
+        const user = claims && await resolveUser(claims);
         if (!user) return json({ error: 'Sign in first.' }, 401);
+
+        if (lower[0] === 'twin' && lower[1] === 'invitations') return invitationAdmin(route, { request, segments, user });
 
         const state = await playState.load(user.Id);
 

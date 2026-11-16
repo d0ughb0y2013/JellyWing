@@ -29,7 +29,6 @@ public class TwinPublisher
 {
     private const string IndexKey = "catalog/index.json";
     private const string CatalogKey = "catalog/all.json";
-    private const string UsersKey = "auth/users.json";
 
     private readonly ILibraryManager _libraryManager;
     private readonly IUserManager _userManager;
@@ -163,12 +162,7 @@ public class TwinPublisher
         catalog[position++] = (byte)']';
         state.CatalogHash = await PutIfChangedAsync(store, CatalogKey, catalog.AsMemory(0, position), state.CatalogHash, cancellationToken).ConfigureAwait(false);
 
-        // Password hashes, never passwords: the twin checks a sign-in the same way the server does.
-        var users = _userManager.GetUsers()
-            .Where(u => !u.HasPermission(PermissionKind.IsDisabled))
-            .OrderBy(u => u.Username, StringComparer.Ordinal)
-            .Select(u => new { u.Id, Name = u.Username, u.Password });
-        state.UsersHash = await PutIfChangedAsync(store, UsersKey, JsonSerializer.SerializeToUtf8Bytes(users, JsonDefaults.Options), state.UsersHash, cancellationToken).ConfigureAwait(false);
+        state.UsersHash = await PutIfChangedAsync(store, TwinUsers.Key, TwinUsers.Serialize(_userManager), state.UsersHash, cancellationToken).ConfigureAwait(false);
         SaveState(state);
 
         progress.Report(100);

@@ -17,7 +17,10 @@ function hashOf(password) {
 }
 
 const files = {
-    'auth/users.json': [{ Id: 'cccccccc-0000-0000-0000-000000000001', Name: 'Alice', Password: hashOf('correct horse') }],
+    'auth/users.json': [
+        { Id: 'cccccccc-0000-0000-0000-000000000001', Name: 'Alice', Password: hashOf('correct horse') },
+        { Id: 'cccccccc-0000-0000-0000-000000000002', Name: 'Root', Password: hashOf('admin password'), IsAdministrator: true }
+    ],
     'catalog/all.json': [
         { Id: SERIES, Type: 'Series', Name: 'A Show', Library: 'TV', ImageKey: `images/${SERIES}.jpg` },
         { Id: SEASON, Type: 'Season', Name: 'Season 1', Library: 'TV', SeriesId: SERIES, IndexNumber: 1 },
@@ -554,4 +557,189 @@ test('callers with no known address share one limit', async () => {
     }
 
     assert.equal((await call(twin, '/Users/AuthenticateByName', { method: 'POST', body: { Username: 'alice', Pw: 'correct horse' } })).status, 429);
+});
+
+const INVITATIONS = 'state/invitations.json';
+const post = (twin, path, body, token) => call(twin, path, { method: 'POST', body, token, from: '203.0.113.7' });
+
+async function adminToken(twin) {
+    return (await post(twin, '/Users/AuthenticateByName', { Username: 'root', Pw: 'admin password' })).body.AccessToken;
+}
+
+async function invite(twin, days) {
+    const made = await post(twin, '/Twin/Invitations', days ? { Days: days } : {}, await adminToken(twin));
+    assert.equal(made.status, 200);
+    return made.body;
+}
+
+test('only an administrator can make invitations', async () => {
+    const twin = newTwin();
+    assert.equal((await post(twin, '/Twin/Invitations', {})).status, 401);
+    assert.equal((await post(twin, '/Twin/Invitations', {}, await signIn(twin))).status, 403);
+    assert.equal((await call(twin, '/Twin/Invitations', { token: await signIn(twin) })).status, 403);
+
+    const made = await invite(twin);
+    assert.ok(made.Code.length >= 20);
+    assert.equal(made.CreatedBy, 'Root');
+});
+
+test('an invited person picks a name and password and can watch straight away', async () => {
+    const twin = newTwin();
+    const { Code } = await invite(twin);
+
+    const check = await call(twin, '/Twin/Invitations/Check/' + Code);
+    assert.equal(check.body.Valid, true);
+    assert.equal(check.body.InvitedBy, 'Root');
+
+    const accepted = await post(twin, '/Twin/Invitations/Accept', { Code, Name: 'Dana', Password: 'a long password' });
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.body.Name, 'Dana');
+
+    assert.equal((await post(twin, '/Users/AuthenticateByName', { Username: 'dana', Pw: 'wrong' })).status, 401);
+    const signedIn = await post(twin, '/Users/AuthenticateByName', { Username: 'dana', Pw: 'a long password' });
+    assert.equal(signedIn.status, 200);
+    const token = signedIn.body.AccessToken;
+    assert.equal((await call(twin, '/Users/Me', { token })).body.Name, 'Dana');
+    assert.equal((await call(twin, '/UserViews', { token })).body.Items.length, 2);
+    assert.equal((await post(twin, '/Twin/Invitations', {}, token)).status, 403);
+
+    // What is kept is a hash of the code and a hash of the password, in the media server's format.
+    const stored = texts.get(INVITATIONS).text;
+    assert.ok(!stored.includes(Code) && !stored.includes('a long password'));
+    const person = JSON.parse(stored).Users[0];
+    assert.match(person.Password, /^\$PBKDF2-SHA512\$iterations=210000\$[0-9A-F]{32}\$[0-9A-F]{128}$/);
+    assert.equal(await verifyPassword('a long password', person.Password), true);
+
+    const list = await call(twin, '/Twin/Invitations', { token: await adminToken(twin) });
+    assert.deepEqual(list.body.map(i => [i.State, i.UsedBy]), [['Used', 'Dana']]);
+    assert.ok(!JSON.stringify(list.body).includes(Code));
+});
+
+test('an invitation works once, for a free name and a real password', async () => {
+    const twin = newTwin();
+    const { Code } = await invite(twin);
+    const accept = (name, password, code = Code) => post(twin, '/Twin/Invitations/Accept', { Code: code, Name: name, Password: password });
+
+    assert.match((await accept('Dana', 'short')).body.error, /at least 8/);
+    assert.match((await accept('alice', 'a long password')).body.error, /taken/);
+    assert.match((await accept('bad/name', 'a long password')).body.error, /name/);
+    assert.equal((await accept(' ', 'a long password')).status, 400);
+    assert.equal((await accept('Dana', 'a long password', 'not-a-code')).status, 400);
+
+    assert.equal((await accept('Dana', 'a long password')).status, 200);
+    assert.match((await accept('Erin', 'a long password')).body.error, /not valid/);
+    assert.equal((await call(twin, '/Twin/Invitations/Check/' + Code)).body.Valid, false);
+
+    const second = (await invite(twin)).Code;
+    assert.match((await accept('DANA', 'another password', second)).body.error, /taken/);
+});
+
+test('an invitation runs out, and can be withdrawn', async () => {
+    let clock = Date.UTC(2026, 10, 16);
+    const twin = newTwin(() => clock);
+    const first = await invite(twin, 1);
+    const second = await invite(twin, 1);
+
+    const token = await adminToken(twin);
+    assert.equal((await call(twin, '/Twin/Invitations/' + second.Id, { method: 'DELETE', token })).status, 204);
+    assert.equal((await call(twin, '/Twin/Invitations/Check/' + second.Code)).body.Valid, false);
+    assert.equal((await call(twin, '/Twin/Invitations/' + second.Id, { method: 'DELETE', token })).status, 404);
+
+    clock += 25 * 3600 * 1000;
+    assert.equal((await call(twin, '/Twin/Invitations/Check/' + first.Code)).body.Valid, false);
+    assert.equal((await post(twin, '/Twin/Invitations/Accept', { Code: first.Code, Name: 'Dana', Password: 'a long password' })).status, 400);
+});
+
+test('once the home server has made the account, it takes over', async () => {
+    const twin = newTwin();
+    const { Code } = await invite(twin);
+    await post(twin, '/Twin/Invitations/Accept', { Code, Name: 'Dana', Password: 'a long password' });
+    const token = (await post(twin, '/Users/AuthenticateByName', { Username: 'Dana', Pw: 'a long password' })).body.AccessToken;
+    const firstId = (await call(twin, '/Users/Me', { token })).body.Id;
+
+    // What the home server's sync does: make the account, publish it, and say so.
+    const HOME_ID = 'dddddddd000000000000000000000009';
+    const data = JSON.parse(texts.get(INVITATIONS).text);
+    data.Users[0].HomeId = HOME_ID;
+    data.Users[0].Password = null;
+    texts.set(INVITATIONS, { text: JSON.stringify(data), tag: 'home-1' });
+    files['auth/users.json'].push({ Id: HOME_ID, Name: 'Dana', Password: hashOf('changed at home') });
+
+    try {
+        // The device that was already signed in carries on, now as the account from home.
+        const me = await call(twin, '/Users/Me', { token });
+        assert.equal(me.status, 200);
+        assert.equal(me.body.Id, HOME_ID);
+        assert.notEqual(firstId, HOME_ID);
+
+        // And the password is whatever home says it is now.
+        assert.equal((await post(twin, '/Users/AuthenticateByName', { Username: 'Dana', Pw: 'a long password' })).status, 401);
+        assert.equal((await post(twin, '/Users/AuthenticateByName', { Username: 'Dana', Pw: 'changed at home' })).status, 200);
+    } finally {
+        files['auth/users.json'].pop();
+    }
+
+    // Removed at home: out here too, old token and all.
+    const gone = newTwin(undefined, { keep: true });
+    assert.equal((await call(gone, '/Users/Me', { token })).status, 401);
+    assert.equal((await post(gone, '/Users/AuthenticateByName', { Username: 'Dana', Pw: 'a long password' })).status, 401);
+});
+
+test('a person the home server turned down cannot sign in', async () => {
+    const twin = newTwin();
+    const { Code } = await invite(twin);
+    await post(twin, '/Twin/Invitations/Accept', { Code, Name: 'Dana', Password: 'a long password' });
+    const token = (await post(twin, '/Users/AuthenticateByName', { Username: 'Dana', Pw: 'a long password' })).body.AccessToken;
+
+    const data = JSON.parse(texts.get(INVITATIONS).text);
+    data.Users[0].Rejected = 'That name is in use at home.';
+    texts.set(INVITATIONS, { text: JSON.stringify(data), tag: 'home-1' });
+
+    const later = newTwin(undefined, { keep: true });
+    assert.equal((await call(later, '/Users/Me', { token })).status, 401);
+    assert.equal((await post(later, '/Users/AuthenticateByName', { Username: 'Dana', Pw: 'a long password' })).status, 401);
+});
+
+test('a token for someone who is no longer published stops working', async () => {
+    const twin = newTwin();
+    files['auth/users.json'].push({ Id: 'eeeeeeee000000000000000000000001', Name: 'Temp', Password: hashOf('temp password') });
+    let token;
+    try {
+        token = (await post(twin, '/Users/AuthenticateByName', { Username: 'Temp', Pw: 'temp password' })).body.AccessToken;
+        assert.equal((await call(twin, '/Users/Me', { token })).status, 200);
+    } finally {
+        files['auth/users.json'].pop();
+    }
+
+    assert.equal((await call(newTwin(undefined, { keep: true }), '/Users/Me', { token })).status, 401);
+});
+
+test('trying invitation codes is limited per caller', async () => {
+    const twin = newTwin();
+    const { Code } = await invite(twin);
+    for (let i = 0; i < 20; i++) {
+        assert.equal((await call(twin, '/Twin/Invitations/Check/guess' + i, { from: '198.51.100.9' })).body.Valid, false);
+    }
+
+    assert.equal((await call(twin, '/Twin/Invitations/Check/' + Code, { from: '198.51.100.9' })).status, 429);
+    assert.equal((await call(twin, '/Twin/Invitations/Check/' + Code, { from: '198.51.100.10' })).body.Valid, true);
+});
+
+test('the invitation pages are plain pages that carry no code and load nothing from elsewhere', async () => {
+    const twin = newTwin();
+    for (const path of ['/invite', '/invite/accept']) {
+        const page = await twin.handle(new Request('https://twin.example' + path));
+        assert.equal(page.status, 200);
+        assert.match(page.headers.get('content-type'), /^text\/html/);
+        assert.match(page.headers.get('content-security-policy'), /default-src 'none'/);
+        assert.equal(page.headers.get('cache-control'), 'no-store');
+        const text = await page.text();
+        assert.ok(!/https?:\/\//.test(text.replace('http://www.w3.org', '')), 'no outside addresses');
+    }
+});
+
+test('a server name cannot inject markup into the pages', async () => {
+    const twin = createTwin({ store, tokenSecret: 'a-test-secret-of-enough-length', serverName: '<script>alert(1)</script>' });
+    const text = await (await twin.handle(new Request('https://twin.example/invite'))).text();
+    assert.ok(!text.includes('<script>alert(1)'));
 });

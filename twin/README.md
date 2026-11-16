@@ -57,6 +57,7 @@ npm test
 | Area | Endpoints |
 |---|---|
 | Web client | `GET /web/...`, served from the store; `/` leads there |
+| Invitations | `GET /invite`, `GET /invite/accept`, and the `/Twin/Invitations` calls above |
 | Server | `GET /System/Info/Public`, `GET /System/Info`, `GET /System/Ping`, `GET /Branding/Configuration` |
 | Sign-in | `POST /Users/AuthenticateByName`, `GET /Users/Me`, `GET /Users/{id}`, `POST /Sessions/Logout` |
 | Browse | `GET /UserViews`, `GET /Items`, `GET /Items/{id}`, `GET /Items/Latest`, `GET /Items/{id}/Ancestors`, `GET /Shows/{id}/Seasons`, `GET /Shows/{id}/Episodes` |
@@ -69,6 +70,36 @@ npm test
 Everything else answers 404. `/Items` understands `ParentId`, `IncludeItemTypes`,
 `Recursive`, `Ids`, `SearchTerm`, `Filters` (favorite, played, unplayed, resumable), `SortBy`,
 `SortOrder`, `StartIndex` and `Limit`.
+
+## Invitations
+
+An administrator who is signed in to the web client on the twin opens `/invite` and makes a
+link. The link works once and for a set time (7 days unless changed). Whoever opens it
+picks a name and a password and can sign in and watch straight away.
+
+The home server makes the matching account on its next sync: same name, same password,
+never an administrator, and able to see only the published libraries. From then on that
+account is the real one. A device the person was already signed in on carries on, and what
+they watched in the meantime comes along. If the home server cannot make the account, for
+instance because the name is in use there, the person can no longer sign in and needs a
+new invitation.
+
+What is kept, in `state/invitations.json`: a hash of each link's code, never the code, and
+for each person waiting a hash of their password in the media server's own format, never
+the password. The code travels after the `#` in the link, so it is not in request logs.
+
+Anyone removed or disabled at home stops being able to use the twin within a minute of the
+next publish, tokens included.
+
+| Call | Who | Does |
+|---|---|---|
+| `GET /Twin/Invitations` | administrator | lists invitations and their state |
+| `POST /Twin/Invitations` with `{ "Days": 7 }` | administrator | makes one; the answer holds the code, once |
+| `DELETE /Twin/Invitations/{id}` | administrator | withdraws one nobody has used |
+| `GET /Twin/Invitations/Check/{code}` | anyone | says whether a code still works |
+| `POST /Twin/Invitations/Accept` with `Code`, `Name`, `Password` | anyone with a code | makes the person |
+
+Trying codes is limited per caller address like sign-in is.
 
 ## Sign-in limits
 

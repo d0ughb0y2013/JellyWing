@@ -3,8 +3,9 @@
 Status: publishing is built, and so is a twin API that signs users in, lets them browse,
 and plays by handing out links to the files. The web client is published too, so opening
 the twin's address in a browser gives the same client as at home. What is watched on the
-twin comes home and the other way round, along with favorites and watchlists. It can be
-deployed to AWS with the templates in `deploy/cloud-twin/`. Invitations are not built. See
+twin comes home and the other way round, along with favorites and watchlists. An
+administrator can invite someone with a link. It can be deployed to AWS with the templates
+in `deploy/cloud-twin/`. See
 [Build order](#build-order) for where things stand.
 
 ## Goal
@@ -109,8 +110,14 @@ works at home and away. The twin issues its own access tokens. Parental controls
 library access are evaluated by the home server at publish time and stored on each
 record as the list of users who may see it.
 
-An invitation is a record in the twin that lets a new person set a password; the agent
-creates the matching user at home on its next run.
+An invitation is a single-use link an administrator makes on the twin, at `/invite`. The
+person who opens it picks a name and a password and can watch at once. On its next sync
+the home server makes the matching account with the same password. That account is never
+an administrator and sees only the published libraries. `twin:invitations=false` stops the
+home server from making accounts this way. `twin/README.md` has the details.
+
+Who is an administrator is published with the user list. Someone removed or disabled at
+home loses the twin as well, once the list has been published again.
 
 ## API the twin needs
 
@@ -188,7 +195,8 @@ carry its own license.
 3. **Done.** Playback through signed links, with progress kept.
 4. **Done.** Play state, favorites and watchlists sync in both directions. What it does not
    do: push a change to other open devices as it happens.
-5. Invitations.
+5. **Done.** Invitations: a single-use link made on the twin; the account is made at home
+   on the next sync.
 
 ## Decisions made
 
@@ -213,6 +221,7 @@ no default schedule and does nothing until it is set up.
 | `twin:folder` | A local folder to publish into instead of a store, for trying it out |
 | `twin:webClient` | Set to `false` to leave the web client out. It is published otherwise |
 | `twin:playState` | Set to `false` to stop syncing play state. It is synced otherwise |
+| `twin:invitations` | Set to `false` to stop making accounts for people invited on the twin |
 
 Settings are read from the environment with the prefix `JELLYFIN_` and `__` between the
 parts, for example `JELLYFIN_twin__s3__bucket`. Keep the credentials in the environment of
@@ -232,9 +241,10 @@ What lands in the store:
 | `catalog/<item id>.json` | The item's record: name, type, series and season, numbers, description, running time, genres, and the keys above |
 | `catalog/index.json` | The ids of every published item |
 | `catalog/all.json` | Every record in one file, which is what the twin API reads |
-| `auth/users.json` | Each enabled user's id, name and password hash. Never a password |
+| `auth/users.json` | Each enabled user's id, name, password hash and whether they are an administrator. Never a password |
 | `web/...` | The server's web client, file for file, which the twin serves at `/web/` |
 | `state/<user id>.json` | That user's play state and watchlist. Written by the twin and by the server's sync |
+| `state/invitations.json` | Invitations by the hash of their code, and the people who accepted one. Written by the twin and by the server's sync |
 | `state/limits/...` | Counts of recent failed sign-ins, written by the twin. Safe to delete; the template's bucket removes them after a day |
 
 Movies, series, seasons and episodes are published. A video that still needs an optimized
