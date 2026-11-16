@@ -37,21 +37,9 @@ public sealed class OptimizedVersionMaker : IOptimizedVersionMaker, IDisposable
         _logger = logger;
     }
 
-    /// <summary>
-    /// Plans the optimized version of an item.
-    /// </summary>
-    /// <param name="item">The item.</param>
-    /// <returns>The plan, or <c>null</c> if the item is not a video file one can be made of.</returns>
-    public static OptimizedVersionPlan? Plan(BaseItem item)
-    {
-        if (!OptimizedVersionSelector.IsCandidate(item))
-        {
-            return null;
-        }
-
-        var (video, audio) = OptimizedVersion.PickStreams(item.GetMediaStreams());
-        return OptimizedVersionPlan.Create(item.Container, video, audio);
-    }
+    /// <inheritdoc />
+    public OptimizedVersionPlan? Plan(BaseItem item)
+        => OptimizedVersionSelector.Plan(item, _mediaEncoder.SupportsFilter("tonemapx"));
 
     /// <inheritdoc />
     public async Task<bool> MakeAsync(BaseItem item, CancellationToken cancellationToken)

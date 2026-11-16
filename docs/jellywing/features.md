@@ -50,8 +50,14 @@ once, ahead of time.
 - **Disk space:** no copy is made unless the disk would still have 2 GB free afterwards.
   The library task stops at the first video there is no room for.
 
-Limits today: HDR videos are skipped, encoding is done in software, alternate versions of
-an item do not get their own copy, and there is no per-library setting.
+- **HDR:** an HDR10, HDR10+ or HLG video, including Dolby Vision that carries one of those
+  underneath, is converted to standard dynamic range with tone mapping, so the copy has
+  normal colors on an ordinary screen. This needs an ffmpeg with the `tonemapx` filter,
+  which Jellyfin's builds have; without it, HDR videos are skipped. Dolby Vision with no
+  HDR10 or HLG picture underneath is always skipped.
+
+Limits today: encoding and tone mapping are done in software, alternate versions of an
+item do not get their own copy, and there is no per-library setting.
 
 ## Optimized downloads
 

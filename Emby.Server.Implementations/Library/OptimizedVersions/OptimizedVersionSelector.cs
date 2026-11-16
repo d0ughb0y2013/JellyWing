@@ -1,5 +1,6 @@
 using System.IO;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 
 namespace Emby.Server.Implementations.Library.OptimizedVersions;
@@ -24,5 +25,22 @@ public static class OptimizedVersionSelector
             && !video.PrimaryVersionId.HasValue
             && !string.IsNullOrEmpty(video.Path)
             && Path.IsPathFullyQualified(video.Path);
+    }
+
+    /// <summary>
+    /// Plans the optimized version of an item.
+    /// </summary>
+    /// <param name="item">The item.</param>
+    /// <param name="canToneMap">Whether the encoder can convert HDR to SDR.</param>
+    /// <returns>The plan, or <c>null</c> if the item is not a video file one can be made of.</returns>
+    public static OptimizedVersionPlan? Plan(BaseItem item, bool canToneMap)
+    {
+        if (!IsCandidate(item))
+        {
+            return null;
+        }
+
+        var (video, audio) = OptimizedVersion.PickStreams(item.GetMediaStreams());
+        return OptimizedVersionPlan.Create(item.Container, video, audio, canToneMap);
     }
 }

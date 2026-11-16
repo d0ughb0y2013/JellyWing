@@ -59,17 +59,70 @@ public class OptimizedVersionPlanTests
     }
 
     [Fact]
-    public void Create_Hdr_IsSkippedRatherThanConvertedBadly()
+    public void Create_HdrWithoutAToneMappingEncoder_IsSkippedRatherThanConvertedBadly()
     {
-        var video = Video("hevc");
-        video.BitDepth = 10;
-        video.ColorTransfer = "smpte2084";
-        Assert.Equal(VideoRange.HDR, video.VideoRange);
-
-        var plan = OptimizedVersionPlan.Create("matroska", video, Audio("aac", 2));
+        var plan = OptimizedVersionPlan.Create("matroska", Hdr10Video(), Audio("aac", 2), canToneMap: false);
 
         Assert.False(plan.IsNeeded);
         Assert.Contains("HDR", plan.SkipReason, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Create_Hdr10WithAToneMappingEncoder_IsConvertedToSdr()
+    {
+        var video = Hdr10Video();
+        var plan = OptimizedVersionPlan.Create("matroska", video, Audio("aac", 2), canToneMap: true);
+
+        Assert.True(plan.IsNeeded);
+        Assert.True(plan.ToneMap);
+        Assert.False(plan.CopyVideo);
+
+        var args = plan.BuildArguments("in.mkv", "out", video, null);
+        AssertSequence(args, "-vf", "tonemapx=tonemap=bt2390:desat=0:peak=100:t=bt709:m=bt709:p=bt709:format=yuv420p");
+        AssertSequence(args, "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709");
+    }
+
+    [Fact]
+    public void BuildArguments_4KHdr_ScalesBeforeToneMapping()
+    {
+        var video = Hdr10Video();
+        video.Width = 3840;
+        video.Height = 2160;
+        var plan = OptimizedVersionPlan.Create("matroska", video, null, canToneMap: true);
+
+        var args = plan.BuildArguments("in.mkv", "out", video, null);
+
+        AssertSequence(
+            args,
+            "-vf",
+            "scale=w=1920:h=1080:force_original_aspect_ratio=decrease:force_divisible_by=2,tonemapx=tonemap=bt2390:desat=0:peak=100:t=bt709:m=bt709:p=bt709:format=yuv420p");
+    }
+
+    [Fact]
+    public void Create_DolbyVisionWithoutAnHdr10Base_IsSkipped()
+    {
+        // Profile 5: Dolby Vision only, with no HDR10 or HLG picture underneath.
+        var video = Hdr10Video();
+        video.DvProfile = 5;
+        video.DvVersionMajor = 1;
+        video.RpuPresentFlag = 1;
+        video.BlPresentFlag = 1;
+        video.DvBlSignalCompatibilityId = 0;
+        Assert.Equal(VideoRangeType.DOVI, video.VideoRangeType);
+
+        var plan = OptimizedVersionPlan.Create("matroska", video, null, canToneMap: true);
+
+        Assert.False(plan.IsNeeded);
+    }
+
+    [Fact]
+    public void BuildArguments_Sdr_DoesNotToneMap()
+    {
+        var video = Video("hevc");
+        var plan = OptimizedVersionPlan.Create("matroska", video, null, canToneMap: true);
+
+        Assert.False(plan.ToneMap);
+        Assert.DoesNotContain("-color_trc", plan.BuildArguments("in.mkv", "out", video, null));
     }
 
     [Fact]
@@ -183,6 +236,16 @@ public class OptimizedVersionPlanTests
         Height = height,
         BitDepth = 8
     };
+
+    private static MediaStream Hdr10Video()
+    {
+        var video = Video("hevc");
+        video.BitDepth = 10;
+        video.ColorTransfer = "smpte2084";
+        Assert.Equal(VideoRange.HDR, video.VideoRange);
+        Assert.Equal(VideoRangeType.HDR10, video.VideoRangeType);
+        return video;
+    }
 
     private static MediaStream Audio(string codec, int channels) => new()
     {

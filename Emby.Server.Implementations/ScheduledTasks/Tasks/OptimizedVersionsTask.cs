@@ -74,7 +74,7 @@ public class OptimizedVersionsTask : IScheduledTask
             progress.Report(100d * i / items.Count);
 
             var item = items[i];
-            if (OptimizedVersionMaker.Plan(item) is { IsNeeded: true }
+            if (_maker.Plan(item) is { IsNeeded: true }
                 && _store.Find(item.Id, item.Path) is null
                 && !_store.HasRoomFor(new FileInfo(item.Path).Length))
             {

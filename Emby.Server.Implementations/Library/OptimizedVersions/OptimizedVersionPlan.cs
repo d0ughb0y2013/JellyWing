@@ -19,11 +19,24 @@ public sealed class OptimizedVersionPlan
 
     private static readonly string[] _compatibleContainers = ["mp4", "m4v", "mov"];
 
-    private OptimizedVersionPlan(string? skipReason, bool copyVideo, bool copyAudio)
+    // HDR formats whose picture can be converted to SDR from the stream itself. Dolby Vision
+    // without an HDR10 or HLG base needs its own processing and is left alone.
+    private static readonly VideoRangeType[] _toneMappable =
+    [
+        VideoRangeType.HDR10,
+        VideoRangeType.HDR10Plus,
+        VideoRangeType.HLG,
+        VideoRangeType.DOVIWithHDR10,
+        VideoRangeType.DOVIWithHDR10Plus,
+        VideoRangeType.DOVIWithHLG
+    ];
+
+    private OptimizedVersionPlan(string? skipReason, bool copyVideo, bool copyAudio, bool toneMap = false)
     {
         SkipReason = skipReason;
         CopyVideo = copyVideo;
         CopyAudio = copyAudio;
+        ToneMap = toneMap;
     }
 
     /// <summary>
@@ -47,32 +60,48 @@ public sealed class OptimizedVersionPlan
     public bool CopyAudio { get; }
 
     /// <summary>
+    /// Gets a value indicating whether the HDR picture is converted to SDR.
+    /// </summary>
+    public bool ToneMap { get; }
+
+    /// <summary>
     /// Plans the optimized version of a file.
     /// </summary>
     /// <param name="container">The container, as probed; may list several names.</param>
     /// <param name="video">The video stream.</param>
     /// <param name="audio">The audio stream that will be kept, if the file has one.</param>
+    /// <param name="canToneMap">Whether the encoder can convert HDR to SDR.</param>
     /// <returns>The plan.</returns>
-    public static OptimizedVersionPlan Create(string? container, MediaStream? video, MediaStream? audio)
+    public static OptimizedVersionPlan Create(string? container, MediaStream? video, MediaStream? audio, bool canToneMap = false)
     {
         if (video is null)
         {
             return new OptimizedVersionPlan("it has no video stream", false, false);
         }
 
+        var copyAudio = audio is null
+            || (string.Equals(audio.Codec, "aac", StringComparison.OrdinalIgnoreCase) && (audio.Channels ?? 2) <= 2);
+
         if (video.VideoRange == VideoRange.HDR)
         {
-            // Converting HDR without tone mapping gives washed-out colors.
-            return new OptimizedVersionPlan("it is HDR, which is not supported yet", false, false);
+            // Converting HDR without tone mapping gives washed-out colors, so it is that or nothing.
+            if (!canToneMap)
+            {
+                return new OptimizedVersionPlan("it is HDR and this ffmpeg cannot convert HDR", false, false);
+            }
+
+            if (Array.IndexOf(_toneMappable, video.VideoRangeType) < 0)
+            {
+                return new OptimizedVersionPlan("its kind of HDR cannot be converted", false, false);
+            }
+
+            return new OptimizedVersionPlan(null, false, copyAudio, toneMap: true);
         }
 
         var copyVideo = string.Equals(video.Codec, "h264", StringComparison.OrdinalIgnoreCase)
             && (video.BitDepth ?? 8) <= 8
             && !video.IsInterlaced
             && FitsTheFrame(video);
-
-        var copyAudio = audio is null
-            || (string.Equals(audio.Codec, "aac", StringComparison.OrdinalIgnoreCase) && (audio.Channels ?? 2) <= 2);
 
         if (copyVideo && copyAudio && IsCompatibleContainer(container))
         {
@@ -128,9 +157,20 @@ public sealed class OptimizedVersionPlan
                     $"scale=w={(portrait ? MaxShortSide : MaxLongSide)}:h={(portrait ? MaxLongSide : MaxShortSide)}:force_original_aspect_ratio=decrease:force_divisible_by=2"));
             }
 
+            if (ToneMap)
+            {
+                // The same conversion the server uses when it tone maps in software during playback.
+                filters.Add("tonemapx=tonemap=bt2390:desat=0:peak=100:t=bt709:m=bt709:p=bt709:format=yuv420p");
+            }
+
             if (filters.Count > 0)
             {
                 args.AddRange(["-vf", string.Join(',', filters)]);
+            }
+
+            if (ToneMap)
+            {
+                args.AddRange(["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709"]);
             }
 
             args.AddRange(["-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p", "-profile:v", "high"]);

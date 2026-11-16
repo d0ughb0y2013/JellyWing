@@ -189,6 +189,8 @@ public sealed class OptimizedVersionManagerTests : IDisposable
             Finish = new(TaskCreationOptions.RunContinuationsAsynchronously);
         }
 
+        public OptimizedVersionPlan? Plan(BaseItem item) => OptimizedVersionSelector.Plan(item, canToneMap: false);
+
         public async Task<bool> MakeAsync(BaseItem item, CancellationToken cancellationToken)
         {
             Calls++;

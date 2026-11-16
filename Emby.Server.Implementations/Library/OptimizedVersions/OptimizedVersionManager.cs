@@ -55,7 +55,7 @@ public class OptimizedVersionManager : IOptimizedVersionManager
     {
         ArgumentNullException.ThrowIfNull(item);
 
-        var plan = OptimizedVersionMaker.Plan(item);
+        var plan = _maker.Plan(item);
         if (plan is null)
         {
             return (OptimizedVersionState.NotNeeded, null);

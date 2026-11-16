@@ -10,6 +10,13 @@ namespace Emby.Server.Implementations.Library.OptimizedVersions;
 public interface IOptimizedVersionMaker
 {
     /// <summary>
+    /// Plans the optimized version of an item, given what this server's encoder can do.
+    /// </summary>
+    /// <param name="item">The item.</param>
+    /// <returns>The plan, or <c>null</c> if the item is not a video file one can be made of.</returns>
+    OptimizedVersionPlan? Plan(BaseItem item);
+
+    /// <summary>
     /// Makes an item's optimized version unless it has one or needs none.
     /// </summary>
     /// <param name="item">The item.</param>
