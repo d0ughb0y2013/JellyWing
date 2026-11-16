@@ -1,7 +1,7 @@
 # JellyWing cloud twin
 
-A small API that lets apps sign in, browse and play a library that a JellyWing server has
-published to object storage. Nothing here converts video or scans files; the home server
+A small API that lets apps and the JellyWing web client sign in, browse and play a library
+that a JellyWing server has published to object storage. Nothing here converts video or scans files; the home server
 does that and publishes the results. See [the design](../docs/jellywing/cloud-twin.md).
 
 It has no dependencies and uses only web-standard `Request`, `Response`, `fetch` and Web
@@ -23,6 +23,18 @@ TWIN_S3_ENDPOINT=https://s3.us-west-2.amazonaws.com TWIN_S3_BUCKET=<bucket> TWIN
 
 with `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and, for temporary credentials,
 `AWS_SESSION_TOKEN` in the environment. It listens on port 8097 unless `PORT` says otherwise.
+Set `TWIN_LOG=1` to print each request it could not answer.
+
+## The web client
+
+When the server has published its web client (it does unless `twin:webClient` is `false`),
+opening the twin's address in a browser gives the same client as at home: sign in, browse,
+search and play. The twin serves those files from `web/` in the store without a sign-in,
+since they are the same public program for everyone.
+
+What does not work there yet, because the twin does not hold the data: resume and next up,
+watched marks, favorites, the watchlist, stats, and live updates. They show as empty, and
+marking something watched or a favorite is accepted and not stored.
 
 ## Test
 
@@ -34,12 +46,14 @@ npm test
 
 | Area | Endpoints |
 |---|---|
-| Server | `GET /System/Info/Public` |
-| Sign-in | `POST /Users/AuthenticateByName`, `GET /Users/Me`, `GET /Users/{id}` |
-| Browse | `GET /UserViews`, `GET /Items`, `GET /Items/{id}`, `GET /Shows/{id}/Seasons`, `GET /Shows/{id}/Episodes` |
+| Web client | `GET /web/...`, served from the store; `/` leads there |
+| Server | `GET /System/Info/Public`, `GET /System/Info`, `GET /System/Ping`, `GET /Branding/Configuration` |
+| Sign-in | `POST /Users/AuthenticateByName`, `GET /Users/Me`, `GET /Users/{id}`, `POST /Sessions/Logout` |
+| Browse | `GET /UserViews`, `GET /Items`, `GET /Items/{id}`, `GET /Items/Latest`, `GET /Items/{id}/Ancestors`, `GET /Shows/{id}/Seasons`, `GET /Shows/{id}/Episodes` |
 | Pictures | `GET /Items/{id}/Images/{type}`, which redirects to a short-lived link |
 | Play | `POST /Items/{id}/PlaybackInfo`, `GET /Videos/{id}/stream`, which redirects to a short-lived link to the file |
 | Progress | `POST /Sessions/Playing`, `/Progress`, `/Stopped` are accepted and not stored yet |
+| Answered as "none" | Resume, next up, similar, genres, people, favorites, watchlist, stats, display preferences, live TV, group watch |
 
 Everything else answers 404. `/Items` understands `ParentId`, `IncludeItemTypes`,
 `Recursive`, `Ids`, `SearchTerm`, `SortBy`, `SortOrder`, `StartIndex` and `Limit`.
@@ -60,4 +74,5 @@ everyone out. A video is listed only once its file has been uploaded.
 ## License
 
 MIT; see [LICENSE](LICENSE). This program shares no code with the media server and talks
-only to the published files, so it carries its own license.
+only to the published files, so it carries its own license. The web client it can serve is
+not part of this program: the server publishes it, and it stays under its own license.

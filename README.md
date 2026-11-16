@@ -26,7 +26,7 @@ Each feature is described in [docs/jellywing/features.md](docs/jellywing/feature
 - [Build and run it](docs/jellywing/building.md)
 - [API added by JellyWing](docs/jellywing/api.md)
 - [How the fork is maintained](docs/jellywing/maintaining.md)
-- [Cloud twin](docs/jellywing/cloud-twin.md), for remote access without router setup. Publishing a library to cloud storage is built; the rest is designed
+- [Cloud twin](docs/jellywing/cloud-twin.md), for remote access without router setup. A library and the web client are published to cloud storage, and a small serverless API serves them: sign in, browse and play from anywhere. Play state sync is designed, not built
 
 ## Branches
 

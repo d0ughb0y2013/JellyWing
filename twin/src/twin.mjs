@@ -135,8 +135,36 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
             HasPassword: true,
             HasConfiguredPassword: true,
             EnableAutoLogin: false,
-            Configuration: { PlayDefaultAudioTrack: true, SubtitleMode: 'Default', EnableNextEpisodeAutoPlay: true },
-            Policy: { IsAdministrator: false, IsDisabled: false, EnableMediaPlayback: true, EnableContentDownloading: false, EnableAllFolders: true }
+            Configuration: {
+                PlayDefaultAudioTrack: true,
+                SubtitleMode: 'Default',
+                EnableNextEpisodeAutoPlay: true,
+                GroupedFolders: [],
+                OrderedViews: [],
+                LatestItemsExcludes: [],
+                MyMediaExcludes: [],
+                HidePlayedInLatest: false,
+                RememberAudioSelections: true,
+                RememberSubtitleSelections: true
+            },
+            Policy: {
+                IsAdministrator: false,
+                IsDisabled: false,
+                EnableMediaPlayback: true,
+                EnableAudioPlaybackTranscoding: false,
+                EnableVideoPlaybackTranscoding: false,
+                EnablePlaybackRemuxing: false,
+                EnableContentDownloading: false,
+                EnableContentDeletion: false,
+                EnableAllFolders: true,
+                EnableLiveTvAccess: false,
+                EnableLiveTvManagement: false,
+                EnableRemoteControlOfOtherUsers: false,
+                EnableSharedDeviceControl: false,
+                EnabledFolders: [],
+                BlockedTags: [],
+                AccessSchedules: []
+            }
         };
     }
 
@@ -164,6 +192,19 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
             LocationType: 'FileSystem',
             ImageTags: record.ImageKey ? { Primary: (await sha256Hex(record.ImageKey + ':' + (record.MediaSize ?? ''))).slice(0, 32) } : {},
             BackdropImageTags: [],
+            ImageBlurHashes: {},
+            People: [],
+            Studios: [],
+            GenreItems: [],
+            Tags: [],
+            Chapters: [],
+            ExternalUrls: [],
+            RemoteTrailers: [],
+            ProviderIds: {},
+            LockedFields: [],
+            CanDelete: false,
+            CanDownload: false,
+            PlayAccess: 'Full',
             UserData: { Key: id, Played: false, PlaybackPositionTicks: 0, PlayCount: 0, IsFavorite: false }
         };
 
@@ -179,8 +220,10 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
 
         if (isVideo) {
             dto.MediaType = 'Video';
+            dto.VideoType = 'VideoFile';
             dto.Container = 'mp4';
             dto.MediaSources = [mediaSource(record)];
+            dto.MediaStreams = [];
         } else {
             const children = catalog.filter(r => sameId(record.Type === 'Series' ? r.SeriesId : r.SeasonId, record.Id));
             dto.ChildCount = record.Type === 'Series' ? children.filter(r => r.Type === 'Season').length : children.length;
@@ -224,6 +267,11 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
         const parentId = get('ParentId');
         const ids = (get('Ids') || '').split(',').filter(Boolean);
         let items = catalog.filter(r => r.Type !== 'Episode' && r.Type !== 'Movie' || r.MediaKey);
+
+        const filters = (get('Filters') || '').toLowerCase();
+        if (/isfavorite|isresumable|isplayed|likes/.test(filters) || (get('IsFavorite') || '').toLowerCase() === 'true') {
+            items = [];
+        }
 
         if (ids.length) {
             items = items.filter(r => ids.some(id => sameId(id, r.Id)));
@@ -288,6 +336,141 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
         };
     }
 
+    const WEB_TYPES = {
+        html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', mjs: 'text/javascript; charset=utf-8',
+        css: 'text/css; charset=utf-8', json: 'application/json', map: 'application/json', txt: 'text/plain; charset=utf-8',
+        svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', ico: 'image/x-icon',
+        woff2: 'font/woff2', woff: 'font/woff', ttf: 'font/ttf', eot: 'application/vnd.ms-fontobject', mp3: 'audio/mpeg',
+        wasm: 'application/wasm', webmanifest: 'application/manifest+json'
+    };
+
+    // The web client, when the home server has published it under web/. Anyone may load it;
+    // it is the same open program whoever asks, and it shows nothing until someone signs in.
+    async function webFile(pathname, version) {
+        let relative;
+        try {
+            relative = decodeURIComponent(pathname.slice('/web/'.length)) || 'index.html';
+        } catch {
+            return notFound();
+        }
+
+        if (relative.split(/[\\/]/).some(part => part === '..' || part === '')) return notFound();
+
+        const bytes = await store.getBytes('web/' + relative);
+        if (!bytes) return json({ error: 'The web client is not published to this twin.' }, 404);
+
+        // A name or address with a build hash in it never changes content; anything else is checked each time.
+        const hashed = /\.[0-9a-f]{16,}\./.test(relative) || /^\?[0-9a-f]{16,}$/.test(version);
+        return new Response(bytes, {
+            status: 200,
+            headers: {
+                'Content-Type': WEB_TYPES[relative.split('.').pop().toLowerCase()] || 'application/octet-stream',
+                'Cache-Control': hashed ? 'public, max-age=31536000, immutable' : 'no-cache',
+                ...cors
+            }
+        });
+    }
+
+    const emptyList = () => ({ Items: [], TotalRecordCount: 0, StartIndex: 0 });
+    const noUserData = id => ({ Key: cleanId(id), Played: false, PlaybackPositionTicks: 0, PlayCount: 0, IsFavorite: false });
+
+    // What an app asks for beyond browsing and playing. Most of it depends on things the
+    // twin does not hold yet, so the honest answer is "none", in the shape the app expects.
+    function extras(route, { catalog, url, segments, lower, method }) {
+        const last = lower[lower.length - 1];
+
+        if (route('GET', 'system', 'info')) {
+            return getServerId().then(id => json({
+                ServerName: serverName,
+                Version: '12.4.0',
+                ProductName: 'Jellyfin Server',
+                Id: id,
+                StartupWizardCompleted: true,
+                OperatingSystem: '',
+                HasPendingRestart: false,
+                IsShuttingDown: false,
+                SupportsLibraryMonitor: false,
+                CanSelfRestart: false
+            }));
+        }
+
+        if (route('GET', 'system', 'endpoint')) return json({ IsLocal: false, IsInNetwork: false });
+
+        if (lower[0] === 'displaypreferences' && lower.length === 2) {
+            if (method === 'POST') return empty();
+            return json({
+                Id: segments[1],
+                SortBy: 'SortName',
+                SortOrder: 'Ascending',
+                RememberIndexing: false,
+                RememberSorting: false,
+                PrimaryImageHeight: 250,
+                PrimaryImageWidth: 250,
+                ScrollDirection: 'Horizontal',
+                ShowBackdrop: true,
+                ShowSidebar: false,
+                CustomPrefs: {},
+                Client: url.searchParams.get('client') || 'emby'
+            });
+        }
+
+        // The newest things in a library: its top level, most recent first.
+        if (method === 'GET' && last === 'latest' && lower.includes('items')) {
+            const query = new URLSearchParams({
+                ParentId: url.searchParams.get('ParentId') || url.searchParams.get('parentId') || '',
+                SortBy: 'PremiereDate,SortName',
+                SortOrder: 'Descending',
+                Limit: url.searchParams.get('Limit') || url.searchParams.get('limit') || '16'
+            });
+            if (!query.get('ParentId')) query.delete('ParentId');
+            return listItems(catalog, query).then(result => json(result.Items));
+        }
+
+        if (method === 'GET' && lower[0] === 'items' && lower.length === 3 && last === 'ancestors') {
+            const record = catalog.find(r => sameId(r.Id, segments[1]));
+            const chain = [record?.SeasonId, record?.SeriesId].map(id => id && catalog.find(r => sameId(r.Id, id))).filter(Boolean);
+            return Promise.all(chain.map(r => itemDto(r, catalog))).then(async items => {
+                const library = record && (await views(catalog)).Items.find(v => v.Name === record.Library);
+                return json(library ? [...items, library] : items);
+            });
+        }
+
+        if (method === 'GET' && last === 'thememedia') {
+            return json({ ThemeVideosResult: emptyList(), ThemeSongsResult: emptyList(), SoundtrackSongsResult: emptyList() });
+        }
+
+        if (method === 'GET' && (last === 'filters' || last === 'filters2')) {
+            return json({ Genres: [], Tags: [], OfficialRatings: [], Years: [] });
+        }
+
+        if (route('GET', 'search', 'hints')) return json({ SearchHints: [], TotalRecordCount: 0 });
+        if (route('GET', 'userstats')) {
+            return json({ Year: new Date(now()).getUTCFullYear(), Years: [], Movies: 0, Episodes: 0, WatchTimeTicks: 0, BusiestMonth: null, TopSeries: [], TopGenres: [] });
+        }
+
+        if (method === 'GET' && lower[0] === 'items' && last === 'optimizedversion') return json({ State: 'NotNeeded' });
+
+        // Marking something watched or a favorite is answered, not stored.
+        if ((method === 'POST' || method === 'DELETE') && ['userplayeditems', 'userfavoriteitems', 'userwatchlistitems'].some(p => lower.includes(p))) {
+            return lower.includes('userwatchlistitems') ? empty() : json(noUserData(segments[segments.length - 1]));
+        }
+
+        if (method === 'GET' && ['specialfeatures', 'localtrailers', 'groupingoptions', 'criticreviews'].includes(last)) return json([]);
+        if (route('GET', 'sessions') || route('GET', 'syncplay', 'list')) return json([]);
+
+        // An app measures its connection by timing a download of the size it asks for.
+        if (route('GET', 'playback', 'bitratetest')) {
+            const size = Math.min(Math.max(Number(url.searchParams.get('size') || url.searchParams.get('Size')) || 102400, 1), 1000000);
+            return new Response(new Uint8Array(size), { status: 200, headers: { 'Content-Type': 'application/octet-stream', ...cors } });
+        }
+
+        const emptyLists = ['resume', 'nextup', 'upcoming', 'similar', 'intros', 'genres', 'studios', 'persons', 'artists',
+            'userwatchlistitems', 'playlists', 'channels', 'trailers', 'musicgenres', 'collections'];
+        if (method === 'GET' && (emptyLists.includes(last) || lower[0] === 'mediasegments' || lower[0] === 'livetv')) return json(emptyList());
+
+        return null;
+    }
+
     async function signIn(request) {
         let body;
         try {
@@ -330,6 +513,20 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
 
         if (route('POST', 'users', 'authenticatebyname')) return signIn(request);
         if (route('GET', 'users', 'public')) return json([]);
+        if (route('GET', 'system', 'ping') || route('POST', 'system', 'ping')) return json('Jellyfin Server');
+        if (route('GET', 'branding', 'configuration')) return json({ LoginDisclaimer: null, CustomCss: null, SplashscreenEnabled: false });
+        if (route('GET', 'branding', 'css') || route('GET', 'branding', 'css.css')) {
+            return new Response('', { status: 200, headers: { 'Content-Type': 'text/css', ...cors } });
+        }
+
+        if (route('GET', 'quickconnect', 'enabled')) return json(false);
+        if (route('GET', 'favicon.ico')) return redirect('/web/favicon.ico');
+
+        // Live updates need a connection that stays open, which the twin does not keep.
+        if (route('GET', 'socket')) return notFound();
+
+        if (method === 'GET' && (url.pathname === '/' || url.pathname === '/web')) return redirect('/web/');
+        if (method === 'GET' && lower[0] === 'web') return webFile(url.pathname, url.search);
 
         const catalog = await cached('catalog/all.json');
 
@@ -343,6 +540,7 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
         if (!user) return json({ error: 'Sign in first.' }, 401);
 
         if (route('GET', 'users', 'me') || route('GET', 'users', '*')) return json(await userDto(user));
+        if (route('GET', 'users')) return json([await userDto(user)]);
         if (route('GET', 'userviews') || route('GET', 'users', '*', 'views')) return json(await views(catalog));
         if (route('GET', 'items') || route('GET', 'users', '*', 'items')) return json(await listItems(catalog, url.searchParams));
 
@@ -351,7 +549,9 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
             const record = catalog.find(r => sameId(r.Id, id));
             if (record) return json(await itemDto(record, catalog));
             const library = (await views(catalog)).Items.find(v => sameId(v.Id, id));
-            return library ? json(library) : notFound();
+            if (library) return json(library);
+
+            // Not an id: a named list such as /Items/Latest, answered further down.
         }
 
         if (route('GET', 'shows', '*', 'seasons')) {
@@ -377,9 +577,9 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
         }
 
         // Progress is accepted and dropped until play state sync is built.
-        if (method === 'POST' && lower[0] === 'sessions' && (lower[1] === 'playing' || lower[1] === 'capabilities')) return empty();
+        if (method === 'POST' && lower[0] === 'sessions' && (lower[1] === 'playing' || lower[1] === 'capabilities' || lower[1] === 'logout')) return empty();
 
-        return notFound();
+        return extras(route, { catalog, url, segments, lower, method, user }) ?? notFound();
     }
 
     return {

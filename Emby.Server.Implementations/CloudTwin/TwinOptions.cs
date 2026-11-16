@@ -24,6 +24,7 @@ public class TwinOptions
         S3AccessKeyId = configuration["twin:s3:accessKeyId"];
         S3SecretAccessKey = configuration["twin:s3:secretAccessKey"];
         S3SessionToken = configuration["twin:s3:sessionToken"];
+        PublishWebClient = !string.Equals(configuration["twin:webClient"], "false", StringComparison.OrdinalIgnoreCase);
         Libraries = (configuration["twin:libraries"] ?? string.Empty)
             .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
     }
@@ -62,6 +63,11 @@ public class TwinOptions
     /// Gets the session token that goes with temporary credentials, if they are temporary.
     /// </summary>
     public string? S3SessionToken { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether the web client is published too, so the twin can serve it. On unless set to false.
+    /// </summary>
+    public bool PublishWebClient { get; }
 
     /// <summary>
     /// Gets the names of the libraries to publish. Nothing is published unless named here.

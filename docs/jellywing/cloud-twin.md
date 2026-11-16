@@ -1,8 +1,10 @@
 # Cloud twin: design
 
 Status: publishing is built, and so is a twin API that signs users in, lets them browse,
-and plays by handing out links to the files. It can be deployed to AWS with the templates
-in `deploy/cloud-twin/`. Play state sync and invitations are not built. See
+and plays by handing out links to the files. The web client is published too, so opening
+the twin's address in a browser gives the same client as at home. It can be deployed to
+AWS with the templates in `deploy/cloud-twin/`. Play state sync and invitations are not
+built. See
 [Build order](#build-order) for where things stand.
 
 ## Goal
@@ -153,6 +155,8 @@ Things to know about this deployment:
   working before its six hours are up, when those credentials rotate.
 - The function reads the catalog and the user list at most once a minute, so a publish
   can take a minute to show.
+- The web client's files come through the function, compressed. Video and pictures do not;
+  they are fetched straight from storage.
 
 ## Licensing
 
@@ -165,8 +169,9 @@ carry its own license.
 1. **Done.** Publish chosen libraries to storage and write catalog records. See
    [Publishing today](#publishing-today).
 2. **Done.** Twin API for sign-in, browsing and artwork, in `twin/`, deployable as a
-   Lambda function. It has been checked with scripted requests; the web client has not
-   been pointed at it yet and will need more of the API than is there.
+   Lambda function. The web client is published with the library and served by the twin;
+   sign-in, browsing, search and playing have been checked in a browser. Lists that need
+   play state (resume, next up, favorites, watchlist, stats) are empty there until step 4.
 3. **Partly done.** Playback through signed links works. Progress reports are accepted
    and dropped.
 4. Play state and watchlist sync in both directions.
@@ -193,6 +198,7 @@ no default schedule and does nothing until it is set up.
 | `twin:s3:sessionToken` | The session token, when the credentials are temporary ones |
 | `twin:s3:region` | The region; `auto` if not set, which suits stores without regions |
 | `twin:folder` | A local folder to publish into instead of a store, for trying it out |
+| `twin:webClient` | Set to `false` to leave the web client out. It is published otherwise |
 
 Settings are read from the environment with the prefix `JELLYFIN_` and `__` between the
 parts, for example `JELLYFIN_twin__s3__bucket`. Keep the credentials in the environment of
@@ -213,12 +219,14 @@ What lands in the store:
 | `catalog/index.json` | The ids of every published item |
 | `catalog/all.json` | Every record in one file, which is what the twin API reads |
 | `auth/users.json` | Each enabled user's id, name and password hash. Never a password |
+| `web/...` | The server's web client, file for file, which the twin serves at `/web/` |
 
 Movies, series, seasons and episodes are published. A video that still needs an optimized
 version is asked for one and published on a later run. Only what changed since the last
 run is sent, and items that left the library are removed from the store. What was
-published is remembered in `cloud-twin/state.json` under the data folder; pointing the
-server at a different store starts from nothing.
+published is remembered in `cloud-twin/state.json` under the data folder, and the web
+client's files in `cloud-twin/web-state.json`; pointing the server at a different store
+starts from nothing.
 
 Limits today: a file larger than 5 GB is not uploaded, since that needs a multipart
 upload; uploads are not resumable; nothing is encrypted beyond the connection.

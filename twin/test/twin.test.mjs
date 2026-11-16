@@ -28,8 +28,19 @@ const files = {
     ]
 };
 
+const webFiles = {
+    'web/index.html': '<!doctype html><title>web client</title>',
+    'web/main.0123456789abcdef0123.chunk.js': 'console.log(1)',
+    'web/themes/dark/theme.css': 'body{}'
+};
+const bytesRead = [];
+
 const store = {
     getJson: async key => files[key] ?? null,
+    getBytes: async key => {
+        bytesRead.push(key);
+        return key in webFiles ? new TextEncoder().encode(webFiles[key]) : null;
+    },
     signedUrl: async (key, seconds) => `https://cdn.example/${key}?expires=${seconds}`
 };
 
@@ -184,4 +195,108 @@ test('progress reports are accepted, and anything else is refused clearly', asyn
 
 test('a short token secret is refused', () => {
     assert.throws(() => createTwin({ store, tokenSecret: 'short' }));
+});
+
+test('the web client is served from the store without signing in', async () => {
+    const twin = newTwin();
+    const raw = path => twin.handle(new Request('https://twin.example' + path));
+
+    for (const path of ['/', '/web']) {
+        const answer = await raw(path);
+        assert.equal(answer.status, 302);
+        assert.equal(answer.headers.get('location'), '/web/');
+    }
+
+    const page = await raw('/web/');
+    assert.equal(page.status, 200);
+    assert.match(page.headers.get('content-type'), /^text\/html/);
+    assert.equal(page.headers.get('cache-control'), 'no-cache');
+    assert.match(await page.text(), /web client/);
+
+    const script = await raw('/web/main.0123456789abcdef0123.chunk.js');
+    assert.match(script.headers.get('content-type'), /^text\/javascript/);
+    assert.match(script.headers.get('cache-control'), /immutable/);
+
+    assert.match((await raw('/web/themes/dark/theme.css')).headers.get('content-type'), /^text\/css/);
+    assert.equal((await raw('/web/themes/dark/theme.css')).headers.get('cache-control'), 'no-cache');
+    assert.match((await raw('/web/themes/dark/theme.css?0123456789abcdef0123')).headers.get('cache-control'), /immutable/);
+    assert.equal((await raw('/favicon.ico')).headers.get('location'), '/web/favicon.ico');
+    assert.equal((await raw('/web/missing.js')).status, 404);
+});
+
+test('a web client path cannot reach the rest of the store', async () => {
+    const twin = newTwin();
+    bytesRead.length = 0;
+    for (const path of ['/web/..%2Fauth/users.json', '/web/%2E%2E/auth/users.json', '/web/a/..%5C..%5Cauth/users.json', '/web//auth/users.json', '/web/%ZZ']) {
+        const answer = await twin.handle(new Request('https://twin.example' + path));
+        // Some of these are collapsed by URL parsing before the twin sees them, and then need a sign-in.
+        assert.ok(answer.status === 404 || answer.status === 401, `${path} answered ${answer.status}`);
+    }
+
+    assert.ok(bytesRead.every(key => key.startsWith('web/') && !key.includes('..')), bytesRead.join(' '));
+});
+
+test('what the web client asks for before sign-in is answered', async () => {
+    const twin = newTwin();
+    assert.equal((await call(twin, '/System/Ping')).status, 200);
+    assert.equal((await call(twin, '/QuickConnect/Enabled')).body, false);
+    assert.equal((await call(twin, '/Branding/Configuration')).status, 200);
+    assert.equal((await call(twin, '/System/Info')).status, 401);
+});
+
+test('the newest items in a library are listed', async () => {
+    const twin = newTwin();
+    const token = await signIn(twin);
+    const views = await call(twin, '/UserViews', { token });
+    const tv = views.body.Items.find(v => v.Name === 'TV');
+
+    const latest = await call(twin, `/Items/Latest?ParentId=${tv.Id}`, { token });
+    assert.equal(latest.status, 200);
+    assert.ok(Array.isArray(latest.body));
+    assert.deepEqual(latest.body.map(i => i.Name), ['A Show']);
+
+    const old = await call(twin, `/Users/someone/Items/Latest?ParentId=${tv.Id}`, { token });
+    assert.deepEqual(old.body.map(i => i.Name), ['A Show']);
+});
+
+test('things the twin does not hold are answered as none, in the shape an app expects', async () => {
+    const twin = newTwin();
+    const token = await signIn(twin);
+
+    for (const path of ['/UserItems/Resume', '/Shows/NextUp', `/Items/${MOVIE}/Similar`, '/Genres', '/LiveTv/Programs', `/Items/${MOVIE}/Collections`, '/UserWatchlistItems']) {
+        const answer = await call(twin, path, { token });
+        assert.equal(answer.status, 200, path);
+        assert.deepEqual(answer.body.Items, [], path);
+    }
+
+    for (const path of ['/Sessions', '/SyncPlay/List', `/Items/${MOVIE}/SpecialFeatures`]) {
+        assert.deepEqual((await call(twin, path, { token })).body, [], path);
+    }
+
+    assert.deepEqual((await call(twin, '/Items?Filters=IsFavorite&Recursive=true', { token })).body.Items, []);
+    assert.equal((await call(twin, '/DisplayPreferences/usersettings?client=emby', { token })).body.Id, 'usersettings');
+    assert.equal((await call(twin, '/DisplayPreferences/usersettings?client=emby', { token, method: 'POST', body: {} })).status, 204);
+    assert.equal((await call(twin, `/UserFavoriteItems/${MOVIE}`, { token, method: 'POST' })).body.IsFavorite, false);
+    assert.equal((await call(twin, `/Items/${MOVIE}/OptimizedVersion`, { token })).body.State, 'NotNeeded');
+    assert.equal((await call(twin, '/Users', { token })).body[0].Name, 'Alice');
+    assert.equal((await call(twin, '/System/Info', { token })).body.ProductName, 'Jellyfin Server');
+    assert.equal((await call(twin, '/Sessions/Logout', { token, method: 'POST' })).status, 204);
+    assert.equal((await call(twin, '/Library/Refresh', { token, method: 'POST' })).status, 404);
+});
+
+test('the item path of an episode leads up to its library', async () => {
+    const twin = newTwin();
+    const token = await signIn(twin);
+    const chain = await call(twin, `/Items/${EPISODE_1}/Ancestors`, { token });
+    assert.deepEqual(chain.body.map(i => i.Name), ['Season 1', 'A Show', 'TV']);
+});
+
+test('a connection test gets the size it asks for, up to a limit', async () => {
+    const twin = newTwin();
+    const token = await signIn(twin);
+    const sized = path => twin.handle(new Request('https://twin.example' + path, { headers: { Authorization: `MediaBrowser Token="${token}"` } }))
+        .then(async answer => (await answer.arrayBuffer()).byteLength);
+
+    assert.equal(await sized('/Playback/BitrateTest?Size=5000'), 5000);
+    assert.equal(await sized('/Playback/BitrateTest?Size=900000000'), 1000000);
 });

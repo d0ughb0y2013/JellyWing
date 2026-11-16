@@ -5,6 +5,7 @@
 //   TWIN_S3_ENDPOINT, TWIN_S3_BUCKET, TWIN_S3_REGION, AWS_ACCESS_KEY_ID,
 //   AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN   an S3-compatible store
 //   PORT                defaults to 8097
+//   TWIN_LOG            set to log requests the twin could not answer (optional)
 
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
@@ -76,6 +77,10 @@ createServer(async (request, response) => {
         headers: request.headers,
         body: hasBody ? Buffer.concat(chunks) : undefined
     }));
+
+    if (process.env.TWIN_LOG && answer.status >= 400) {
+        console.log(`${answer.status} ${request.method} ${request.url.split('?')[0]}`);
+    }
 
     response.writeHead(answer.status, Object.fromEntries(answer.headers));
     response.end(Buffer.from(await answer.arrayBuffer()));

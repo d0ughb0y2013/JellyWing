@@ -547,6 +547,7 @@ namespace Emby.Server.Implementations
             serviceCollection.AddSingleton<IOptimizedVersionMaker, OptimizedVersionMaker>();
             serviceCollection.AddSingleton<IOptimizedVersionManager, OptimizedVersionManager>();
             serviceCollection.AddSingleton<TwinPublisher>();
+            serviceCollection.AddSingleton<TwinWebClientPublisher>();
 
             serviceCollection.AddSingleton<IServerApplicationHost>(this);
             serviceCollection.AddSingleton(ApplicationPaths);

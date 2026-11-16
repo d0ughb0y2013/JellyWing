@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Emby.Server.Implementations.CloudTwin;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Configuration;
@@ -18,6 +19,8 @@ namespace Emby.Server.Implementations.ScheduledTasks.Tasks;
 public class CloudTwinPublishTask : IScheduledTask
 {
     private readonly TwinPublisher _publisher;
+    private readonly TwinWebClientPublisher _webClientPublisher;
+    private readonly IApplicationPaths _applicationPaths;
     private readonly IConfiguration _configuration;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<CloudTwinPublishTask> _logger;
@@ -26,16 +29,22 @@ public class CloudTwinPublishTask : IScheduledTask
     /// Initializes a new instance of the <see cref="CloudTwinPublishTask"/> class.
     /// </summary>
     /// <param name="publisher">The publisher.</param>
+    /// <param name="webClientPublisher">The web client publisher.</param>
+    /// <param name="applicationPaths">The application paths.</param>
     /// <param name="configuration">The startup configuration.</param>
     /// <param name="httpClientFactory">The HTTP client factory.</param>
     /// <param name="logger">The logger.</param>
     public CloudTwinPublishTask(
         TwinPublisher publisher,
+        TwinWebClientPublisher webClientPublisher,
+        IApplicationPaths applicationPaths,
         IConfiguration configuration,
         IHttpClientFactory httpClientFactory,
         ILogger<CloudTwinPublishTask> logger)
     {
         _publisher = publisher;
+        _webClientPublisher = webClientPublisher;
+        _applicationPaths = applicationPaths;
         _configuration = configuration;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
@@ -45,7 +54,7 @@ public class CloudTwinPublishTask : IScheduledTask
     public string Name => "Publish to cloud twin";
 
     /// <inheritdoc />
-    public string Description => "Sends the chosen libraries to the cloud twin's storage: one file per video that plays anywhere, its picture, and a record describing it. Only what changed is sent.";
+    public string Description => "Sends the chosen libraries to the cloud twin's storage: one file per video that plays anywhere, its picture, and a record describing it, plus the web client. Only what changed is sent.";
 
     /// <inheritdoc />
     public string Category => "Library";
@@ -63,14 +72,17 @@ public class CloudTwinPublishTask : IScheduledTask
             return;
         }
 
-        if (!string.IsNullOrEmpty(options.Folder))
-        {
-            await _publisher.PublishAsync(new FolderObjectStore(options.Folder), "folder:" + options.Folder, options.Libraries, progress, cancellationToken).ConfigureAwait(false);
-            return;
-        }
+        var useFolder = !string.IsNullOrEmpty(options.Folder);
+        IObjectStore store = useFolder
+            ? new FolderObjectStore(options.Folder!)
+            : new S3ObjectStore(_httpClientFactory.CreateClient(NamedClient.Default), options);
+        var target = useFolder ? "folder:" + options.Folder : $"s3:{options.S3Endpoint}/{options.S3Bucket}";
 
-        var store = new S3ObjectStore(_httpClientFactory.CreateClient(NamedClient.Default), options);
-        await _publisher.PublishAsync(store, $"s3:{options.S3Endpoint}/{options.S3Bucket}", options.Libraries, progress, cancellationToken).ConfigureAwait(false);
+        await _publisher.PublishAsync(store, target, options.Libraries, progress, cancellationToken).ConfigureAwait(false);
+        if (options.PublishWebClient)
+        {
+            await _webClientPublisher.PublishAsync(store, target, _applicationPaths.WebPath, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc />
