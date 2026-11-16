@@ -80,6 +80,11 @@ namespace MediaBrowser.Controller.Extensions
         public const string InstallRecommendedPluginsKey = "plugins:installRecommended";
 
         /// <summary>
+        /// The key for whether an item is taken off a user's watchlist once the user has watched it.
+        /// </summary>
+        public const string WatchlistRemoveWatchedKey = "watchlist:removeWatched";
+
+        /// <summary>
         /// Gets a value indicating whether the application should host static web content from the <see cref="IConfiguration"/>.
         /// </summary>
         /// <param name="configuration">The configuration to retrieve the value from.</param>
@@ -95,6 +100,14 @@ namespace MediaBrowser.Controller.Extensions
         /// <returns><c>true</c> unless turned off.</returns>
         public static bool GetInstallRecommendedPlugins(this IConfiguration configuration)
             => configuration.GetValue(InstallRecommendedPluginsKey, true);
+
+        /// <summary>
+        /// Gets whether an item is taken off a user's watchlist once the user has watched it.
+        /// </summary>
+        /// <param name="configuration">The configuration to read the setting from.</param>
+        /// <returns><c>true</c> unless turned off.</returns>
+        public static bool GetWatchlistRemoveWatched(this IConfiguration configuration)
+            => configuration.GetValue(WatchlistRemoveWatchedKey, true);
 
         /// <summary>
         /// Gets the FFmpeg probe size from the <see cref="IConfiguration" />.

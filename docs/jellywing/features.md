@@ -15,6 +15,10 @@ or a single episode can go on it.
   by parental controls or library access drops out of view and comes back if access
   returns.
 - **Deleted items** leave every watchlist when they are deleted from the library.
+- **Watched items** leave the watchlist by themselves. A movie or episode goes when it is
+  finished or marked watched. A season or series on the list goes when its last episode
+  has been watched. To keep watched items on the list, start the server with the setting
+  `watchlist:removeWatched=false`.
 
 Entries are stored in a table the server already has, so the watchlist needs no database
 migration.
@@ -42,6 +46,9 @@ once, ahead of time.
 - **Subtitles and audio tracks:** a copy keeps one audio track (the default one) and no
   subtitles. Whenever subtitles are on, or a different audio track is selected, the
   original is used instead so nothing is lost.
+
+- **Disk space:** no copy is made unless the disk would still have 2 GB free afterwards.
+  The library task stops at the first video there is no room for.
 
 Limits today: HDR videos are skipped, encoding is done in software, alternate versions of
 an item do not get their own copy, and there is no per-library setting.

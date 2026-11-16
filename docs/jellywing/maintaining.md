@@ -17,7 +17,7 @@ tracked.
 
 | Area | Location |
 |---|---|
-| Watchlist | `Jellyfin.Server.Implementations/Users/WatchlistManager.cs`, `Jellyfin.Api/Controllers/UserWatchlistController.cs` |
+| Watchlist | `Jellyfin.Server.Implementations/Users/WatchlistManager.cs`, `Jellyfin.Server.Implementations/Users/WatchlistWatchedCleaner.cs`, `Jellyfin.Api/Controllers/UserWatchlistController.cs` |
 | Optimized versions | `Emby.Server.Implementations/Library/OptimizedVersions/`, `MediaBrowser.Controller/Library/OptimizedVersion.cs`, `Jellyfin.Api/Controllers/OptimizedVersionsController.cs` |
 | Version ordering for playback | `Jellyfin.Api/Helpers/MediaInfoHelper.cs` |
 | Optimized versions task | `Emby.Server.Implementations/ScheduledTasks/Tasks/OptimizedVersionsTask.cs` |

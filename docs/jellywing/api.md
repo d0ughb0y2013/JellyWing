@@ -65,3 +65,4 @@ be started and scheduled through the existing scheduled task endpoints.
 | Setting | Default | Effect |
 |---|---|---|
 | `plugins:installRecommended` | `true` | Whether a new server installs the recommended plugins when setup first completes |
+| `watchlist:removeWatched` | `true` | Whether an item leaves a user's watchlist once the user has watched it |
