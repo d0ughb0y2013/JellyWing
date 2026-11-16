@@ -15,6 +15,7 @@ import itemHelper, { canEditPlaylist } from './itemHelper';
 import { playbackManager } from './playback/playbackmanager';
 import toast from './toast/toast';
 import { addToWatchlist, isOnWatchlist, removeFromWatchlist } from '../lib/watchlist';
+import { getOptimizedVersionDownloadUrl, getOptimizedVersionStatus, requestOptimizedVersion } from '../lib/optimizedVersion';
 import * as userSettings from '../scripts/settings/userSettings';
 
 /** Item types that can be put on the watchlist. */
@@ -47,6 +48,46 @@ async function getWatchlistCommand(item) {
         };
     } catch {
         return null;
+    }
+}
+
+/**
+ * Builds the optimized download command for a video, or nothing if it needs none
+ * or the server has no optimized versions.
+ */
+async function getOptimizedDownloadCommand(item) {
+    if (item.MediaType !== 'Video' || !item.ServerId) return null;
+
+    let state;
+    try {
+        ({ State: state } = await getOptimizedVersionStatus(ServerConnections.getApiClient(item.ServerId), item.Id));
+    } catch {
+        return null;
+    }
+
+    switch (state) {
+        case 'Ready':
+            return {
+                name: globalize.translate('DownloadOptimizedVersion'),
+                id: 'downloadoptimized',
+                icon: 'file_download'
+            };
+        case 'Queued':
+        case 'Running':
+            return {
+                name: globalize.translate('OptimizedVersionPreparing'),
+                id: 'optimizedpending',
+                icon: 'hourglass_top'
+            };
+        case 'None':
+        case 'Failed':
+            return {
+                name: globalize.translate('PrepareOptimizedVersion'),
+                id: 'prepareoptimized',
+                icon: 'downloading'
+            };
+        default:
+            return null;
     }
 }
 
@@ -237,6 +278,11 @@ export async function getCommands(options) {
                 id: 'download',
                 icon: 'file_download'
             });
+
+            const optimizedCommand = await getOptimizedDownloadCommand(item);
+            if (optimizedCommand) {
+                commands.push(optimizedCommand);
+            }
 
             commands.push({
                 name: globalize.translate('CopyStreamURL'),
@@ -451,6 +497,29 @@ function executeCommand(item, id, options) {
                         serverId: serverId
                     }).then(getResolveFunction(resolve, id, true), getResolveFunction(resolve, id));
                 });
+                break;
+            case 'downloadoptimized':
+                import('../scripts/fileDownloader').then((fileDownloader) => {
+                    fileDownloader.download([{
+                        url: getOptimizedVersionDownloadUrl(apiClient, itemId),
+                        item,
+                        itemId,
+                        serverId,
+                        title: item.Name,
+                        filename: item.Path.replace(/^.*[\\/]/, '').replace(/\.[^.]*$/, '') + '.mp4'
+                    }]);
+                    getResolveFunction(resolve, id)();
+                });
+                break;
+            case 'prepareoptimized':
+                requestOptimizedVersion(apiClient, itemId).then(() => {
+                    toast(globalize.translate('MessageOptimizedVersionRequested'));
+                    getResolveFunction(resolve, id)();
+                }, getResolveFunction(resolve, id));
+                break;
+            case 'optimizedpending':
+                toast(globalize.translate('MessageOptimizedVersionRequested'));
+                getResolveFunction(resolve, id)();
                 break;
             case 'addtowatchlist':
                 addToWatchlist(apiClient, itemId).then(() => {

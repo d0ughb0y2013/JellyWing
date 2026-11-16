@@ -543,6 +543,8 @@ namespace Emby.Server.Implementations
             serviceCollection.AddSingleton<IInstallationManager, InstallationManager>();
             serviceCollection.AddSingleton<IRecommendedPluginInstaller, RecommendedPluginInstaller>();
             serviceCollection.AddSingleton<OptimizedVersionStore>();
+            serviceCollection.AddSingleton<IOptimizedVersionMaker, OptimizedVersionMaker>();
+            serviceCollection.AddSingleton<IOptimizedVersionManager, OptimizedVersionManager>();
 
             serviceCollection.AddSingleton<IServerApplicationHost>(this);
             serviceCollection.AddSingleton(ApplicationPaths);
