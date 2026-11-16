@@ -70,6 +70,7 @@ public class TwinPublisher
     /// <param name="store">The store to publish to.</param>
     /// <param name="target">A name for the store; publishing to a different one starts over.</param>
     /// <param name="libraries">The names of the libraries to publish.</param>
+    /// <param name="includeLimitedUsers">Whether to publish users whose limits at home the twin cannot apply.</param>
     /// <param name="progress">Receives progress from 0 to 100.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>How many items were sent, were already up to date, are waiting for an optimized version, and were removed.</returns>
@@ -77,6 +78,7 @@ public class TwinPublisher
         IObjectStore store,
         string target,
         IReadOnlyList<string> libraries,
+        bool includeLimitedUsers,
         IProgress<double> progress,
         CancellationToken cancellationToken)
     {
@@ -164,7 +166,16 @@ public class TwinPublisher
 
         // Sent every time, changed or not: the play state sync writes this file too, so what was
         // sent last from here says nothing about what is there now, and a stale list lets a removed user in.
-        await store.PutBytesAsync(TwinUsers.Key, TwinUsers.Serialize(_userManager), "application/json", cancellationToken).ConfigureAwait(false);
+        var users = TwinUsers.Serialize(_userManager, _libraryManager, libraries, includeLimitedUsers, out var leftOut);
+        await store.PutBytesAsync(TwinUsers.Key, users, "application/json", cancellationToken).ConfigureAwait(false);
+        if (leftOut.Count > 0)
+        {
+            _logger.LogInformation(
+                "Cloud twin: {Count} users are not published because they may not connect remotely or are limited at home in ways the twin cannot apply: {Names}",
+                leftOut.Count,
+                string.Join(", ", leftOut));
+        }
+
         SaveState(state);
 
         progress.Report(100);

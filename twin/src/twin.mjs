@@ -112,11 +112,19 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
         return claims.e > now() ? { Id: claims.u, Name: claims.n } : null;
     }
 
+    // The libraries a person may see, or null for all of them. Home servers from before libraries
+    // were listed per person say nothing, which then means all, as it did.
+    const librariesOf = person => (Array.isArray(person.Libraries) ? person.Libraries.map(name => String(name).toLowerCase()) : null);
+
+    // Everything else works from this cut of the catalog, so what a person may not see is,
+    // to them, simply not there: not in a list, a search, a link to play, or their stats.
+    const visibleTo = (user, catalog) => (user.Libraries ? catalog.filter(r => user.Libraries.includes(String(r.Library || '').toLowerCase())) : catalog);
+
     // A token is only as good as the account behind it: someone removed at home is out here too.
     async function resolveUser(claims) {
         const published = async (id, fresh) => {
             const found = (await cached('auth/users.json', fresh)).find(u => sameId(u.Id, id));
-            return found ? { Id: cleanId(found.Id), Name: found.Name, IsAdministrator: !!found.IsAdministrator } : null;
+            return found ? { Id: cleanId(found.Id), Name: found.Name, IsAdministrator: !!found.IsAdministrator, Libraries: librariesOf(found) } : null;
         };
 
         const known = await published(claims.Id);
@@ -127,7 +135,10 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
         // Read afresh each time: the moment home takes over, the old id must stop being used.
         const invited = await invitations.userByFirstId(claims.Id);
         if (!invited) return null;
-        if (!invited.HomeId) return invited.Password ? { Id: invited.Id, Name: invited.Name, IsAdministrator: false } : null;
+        if (!invited.HomeId) {
+            return invited.Password ? { Id: invited.Id, Name: invited.Name, IsAdministrator: false, Libraries: librariesOf(invited) } : null;
+        }
+
         return (await published(invited.HomeId)) || published(invited.HomeId, true);
     }
 
@@ -188,7 +199,7 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
     }
 
     // Making, listing and withdrawing invitations, for administrators.
-    async function invitationAdmin(route, { request, segments, user }) {
+    async function invitationAdmin(route, { request, segments, user, catalog }) {
         if (!user.IsAdministrator) return json({ error: 'Only an administrator can invite people.' }, 403);
 
         try {
@@ -202,7 +213,20 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
                     // No body: the usual length.
                 }
 
-                return json(await invitations.create(user.Name, body.Days));
+                // An administrator can hand out the libraries they can see themselves, and no others.
+                const published = [...new Set(catalog.map(r => r.Library))];
+                let libraries = null;
+                if (body.Libraries != null) {
+                    if (!Array.isArray(body.Libraries) || body.Libraries.length === 0) {
+                        return json({ error: 'Pick at least one library.' }, 400);
+                    }
+
+                    libraries = body.Libraries.map(wanted => published.find(name => name.toLowerCase() === String(wanted).toLowerCase()));
+                    if (libraries.includes(undefined)) return json({ error: 'One of those libraries is not published.' }, 400);
+                    libraries = [...new Set(libraries)];
+                }
+
+                return json(await invitations.create(user.Name, body.Days, libraries));
             }
         } catch (error) {
             if (!(error instanceof InvitationError)) throw error;
@@ -737,11 +761,11 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
         if (method === 'GET' && (url.pathname === '/' || url.pathname === '/web')) return redirect('/web/');
         if (method === 'GET' && lower[0] === 'web') return webFile(url.pathname, url.search);
 
-        const catalog = await cached('catalog/all.json');
+        const everything = await cached('catalog/all.json');
 
         // Pictures are addressed by unguessable ids and carry no token, as on the media server.
         if (lower[0] === 'items' && lower[2] === 'images' && method === 'GET') {
-            const record = catalog.find(r => sameId(r.Id, segments[1]));
+            const record = everything.find(r => sameId(r.Id, segments[1]));
             return record?.ImageKey ? redirect(await store.signedUrl(record.ImageKey, MEDIA_LINK_SECONDS)) : notFound();
         }
 
@@ -749,7 +773,9 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
         const user = claims && await resolveUser(claims);
         if (!user) return json({ error: 'Sign in first.' }, 401);
 
-        if (lower[0] === 'twin' && lower[1] === 'invitations') return invitationAdmin(route, { request, segments, user });
+        const catalog = visibleTo(user, everything);
+
+        if (lower[0] === 'twin' && lower[1] === 'invitations') return invitationAdmin(route, { request, segments, user, catalog });
 
         const state = await playState.load(user.Id);
 

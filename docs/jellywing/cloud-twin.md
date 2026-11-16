@@ -106,14 +106,23 @@ at the same moment do not overwrite each other. `twin:playState=false` turns the
 ## Accounts
 
 Users and their password hashes are published with the catalog, so the same sign-in
-works at home and away. The twin issues its own access tokens. Parental controls and
-library access are evaluated by the home server at publish time and stored on each
-record as the list of users who may see it.
+works at home and away. The twin issues its own access tokens.
+
+Library access comes from home: the published list names, for each person, the published
+libraries they may see, and the twin shows them only those. The list is sent again on
+every sync, so a change at home takes effect on the twin within about 15 minutes.
+
+The twin cannot apply the finer limits a home account can have: a parental rating, allowed
+or blocked tags, blocked unrated items, an access schedule, or a ban on playing. Rather
+than give such a person more on the twin than they have at home, the server leaves them
+out of the published list, so they cannot sign in to the twin. `twin:includeLimitedUsers=true`
+publishes them anyway, limited by library only. A person who is not allowed to connect to
+the home server remotely is never published.
 
 An invitation is a single-use link an administrator makes on the twin, at `/invite`. The
 person who opens it picks a name and a password and can watch at once. On its next sync
 the home server makes the matching account with the same password. That account is never
-an administrator and sees only the published libraries. `twin:invitations=false` stops the
+an administrator and sees only the libraries the administrator chose for the invitation. `twin:invitations=false` stops the
 home server from making accounts this way. `twin/README.md` has the details.
 
 Who is an administrator is published with the user list. That list is sent again on every
@@ -223,6 +232,7 @@ no default schedule and does nothing until it is set up.
 | `twin:webClient` | Set to `false` to leave the web client out. It is published otherwise |
 | `twin:playState` | Set to `false` to stop syncing play state. It is synced otherwise |
 | `twin:invitations` | Set to `false` to stop making accounts for people invited on the twin |
+| `twin:includeLimitedUsers` | Set to `true` to let people use the twin whose home account is limited by rating, tag, schedule or a ban on playing. Those limits do not apply there |
 
 Settings are read from the environment with the prefix `JELLYFIN_` and `__` between the
 parts, for example `JELLYFIN_twin__s3__bucket`. Keep the credentials in the environment of
@@ -242,7 +252,7 @@ What lands in the store:
 | `catalog/<item id>.json` | The item's record: name, type, series and season, numbers, description, running time, genres, and the keys above |
 | `catalog/index.json` | The ids of every published item |
 | `catalog/all.json` | Every record in one file, which is what the twin API reads |
-| `auth/users.json` | Each enabled user's id, name, password hash and whether they are an administrator. Never a password |
+| `auth/users.json` | Each published user's id, name, password hash, whether they are an administrator, and the published libraries they may see. Never a password |
 | `web/...` | The server's web client, file for file, which the twin serves at `/web/` |
 | `state/<user id>.json` | That user's play state and watchlist. Written by the twin and by the server's sync |
 | `state/invitations.json` | Invitations by the hash of their code, and the people who accepted one. Written by the twin and by the server's sync |

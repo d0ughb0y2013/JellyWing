@@ -71,14 +71,29 @@ Everything else answers 404. `/Items` understands `ParentId`, `IncludeItemTypes`
 `Recursive`, `Ids`, `SearchTerm`, `Filters` (favorite, played, unplayed, resumable), `SortBy`,
 `SortOrder`, `StartIndex` and `Limit`.
 
+## Who sees what
+
+The home server says, for each person, which published libraries they may see, and the twin
+shows them those and nothing else: not in lists, search, next up or stats, and not by asking
+for an item by its id. A library a person loses at home disappears for them on the twin
+after the next sync, along with anything they had watched in it. Pictures are the one
+exception: as on the media server, they are fetched by id without a sign-in.
+
+Libraries are the only limit the twin can apply. A person limited at home in a finer way,
+by parental rating, tags, a schedule or a ban on playing, is not published at all, since
+on the twin they would get more than at home. So is anyone who may not connect to the home
+server from outside. See `twin:includeLimitedUsers` in the design document to change the
+first of those.
+
 ## Invitations
 
 An administrator who is signed in to the web client on the twin opens `/invite` and makes a
-link. The link works once and for a set time (7 days unless changed). Whoever opens it
-picks a name and a password and can sign in and watch straight away.
+link, choosing which libraries it is for. The link works once and for a set time (7 days
+unless changed). Whoever opens it picks a name and a password and can sign in and watch
+straight away, limited to those libraries from the start.
 
 The home server makes the matching account on its next sync: same name, same password,
-never an administrator, and able to see only the published libraries. From then on that
+never an administrator, and able to see only the libraries on the invitation. From then on that
 account is the real one. A device the person was already signed in on carries on, and what
 they watched in the meantime comes along. If the home server cannot make the account, for
 instance because the name is in use there, the person can no longer sign in and needs a
@@ -94,7 +109,7 @@ the home server's next sync has sent the new list of users: about 15 minutes at 
 | Call | Who | Does |
 |---|---|---|
 | `GET /Twin/Invitations` | administrator | lists invitations and their state |
-| `POST /Twin/Invitations` with `{ "Days": 7 }` | administrator | makes one; the answer holds the code, once |
+| `POST /Twin/Invitations` with `{ "Days": 7, "Libraries": ["TV"] }` | administrator | makes one; the answer holds the code, once. Without `Libraries` it is for every published library. An administrator can only hand out libraries they can see |
 | `DELETE /Twin/Invitations/{id}` | administrator | withdraws one nobody has used |
 | `GET /Twin/Invitations/Check/{code}` | anyone | says whether a code still works |
 | `POST /Twin/Invitations/Accept` with `Code`, `Name`, `Password` | anyone with a code | makes the person |

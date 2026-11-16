@@ -19,7 +19,7 @@ namespace Emby.Server.Implementations.CloudTwin;
 /// </summary>
 /// <remarks>
 /// The account gets the name and the password hash picked on the twin, is never an
-/// administrator, and sees only the libraries that are published to the twin.
+/// administrator, and sees only published libraries: the ones named on the invitation, or all of them.
 /// </remarks>
 public partial class TwinInvitationSync
 {
@@ -50,10 +50,11 @@ public partial class TwinInvitationSync
     /// Makes the accounts that are waiting, tells the twin, and publishes the new list of users.
     /// </summary>
     /// <param name="store">The twin's store.</param>
-    /// <param name="libraries">The names of the published libraries, which is all a new account may see.</param>
+    /// <param name="libraries">The names of the published libraries, which is the most a new account may see.</param>
+    /// <param name="includeLimitedUsers">Whether the published list of users includes those whose limits the twin cannot apply.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>How many accounts were made.</returns>
-    public async Task<int> SyncAsync(IObjectStore store, IReadOnlyList<string> libraries, CancellationToken cancellationToken)
+    public async Task<int> SyncAsync(IObjectStore store, IReadOnlyList<string> libraries, bool includeLimitedUsers, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(libraries);
@@ -99,7 +100,8 @@ public partial class TwinInvitationSync
             if (made.Count > 0)
             {
                 // Published before the twin is told, so there is never a moment when the person can sign in nowhere.
-                await store.PutBytesAsync(TwinUsers.Key, TwinUsers.Serialize(_userManager), "application/json", cancellationToken).ConfigureAwait(false);
+                var users = TwinUsers.Serialize(_userManager, _libraryManager, libraries, includeLimitedUsers, out _);
+                await store.PutBytesAsync(TwinUsers.Key, users, "application/json", cancellationToken).ConfigureAwait(false);
             }
 
             foreach (var person in data.Users)
@@ -159,6 +161,7 @@ public partial class TwinInvitationSync
 
         var folders = _libraryManager.GetVirtualFolders()
             .Where(f => libraries.Contains(f.Name, StringComparer.OrdinalIgnoreCase) && Guid.TryParse(f.ItemId, out _))
+            .Where(f => person.Libraries is null || person.Libraries.Contains(f.Name, StringComparer.OrdinalIgnoreCase))
             .Select(f => Guid.Parse(f.ItemId))
             .ToArray();
 

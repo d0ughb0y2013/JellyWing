@@ -27,6 +27,7 @@ public class TwinOptions
         PublishWebClient = !string.Equals(configuration["twin:webClient"], "false", StringComparison.OrdinalIgnoreCase);
         SyncPlayState = !string.Equals(configuration["twin:playState"], "false", StringComparison.OrdinalIgnoreCase);
         AcceptInvitations = !string.Equals(configuration["twin:invitations"], "false", StringComparison.OrdinalIgnoreCase);
+        IncludeLimitedUsers = string.Equals(configuration["twin:includeLimitedUsers"], "true", StringComparison.OrdinalIgnoreCase);
         Libraries = (configuration["twin:libraries"] ?? string.Empty)
             .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
     }
@@ -80,6 +81,12 @@ public class TwinOptions
     /// Gets a value indicating whether accounts are made at home for people invited on the twin. On unless set to false.
     /// </summary>
     public bool AcceptInvitations { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether people limited at home by rating, tag, schedule or a ban on playing may use the
+    /// twin, where those limits do not apply. Off unless set to true.
+    /// </summary>
+    public bool IncludeLimitedUsers { get; }
 
     /// <summary>
     /// Gets the names of the libraries to publish. Nothing is published unless named here.

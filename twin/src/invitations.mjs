@@ -96,12 +96,15 @@ export function createInvitations({ store, now }) {
     return {
         supported,
 
-        /** Makes a new invitation. The code is returned once and never stored. */
-        async create(createdBy, days) {
+        /**
+         * Makes a new invitation. The code is returned once and never stored.
+         * @param {string[]|null} [libraries] The libraries whoever uses it may see; null for every published one.
+         */
+        async create(createdBy, days, libraries = null) {
             const length = Math.min(Math.max(Math.floor(Number(days)) || DEFAULT_DAYS, 1), MAX_DAYS);
             const code = toBase64Url(crypto.getRandomValues(new Uint8Array(18)));
             const id = await sha256Hex(code);
-            const invitation = { Created: now(), Expires: now() + length * DAY_MS, CreatedBy: createdBy, UsedBy: null, UsedAt: null };
+            const invitation = { Created: now(), Expires: now() + length * DAY_MS, CreatedBy: createdBy, UsedBy: null, UsedAt: null, Libraries: libraries };
             await change(data => {
                 data.Invitations[id] = invitation;
             });
@@ -164,7 +167,7 @@ export function createInvitations({ store, now }) {
 
                 invitation.UsedBy = cleanName;
                 invitation.UsedAt = now();
-                data.Users.push({ ...user, InvitedBy: invitation.CreatedBy });
+                data.Users.push({ ...user, InvitedBy: invitation.CreatedBy, Libraries: invitation.Libraries ?? null });
                 return { Id: user.Id, Name: cleanName };
             });
         },

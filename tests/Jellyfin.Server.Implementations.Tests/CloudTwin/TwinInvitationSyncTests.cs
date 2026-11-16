@@ -27,6 +27,7 @@ public sealed class TwinInvitationSyncTests
 
     private readonly List<User> _homeUsers = [];
     private readonly Guid _publishedLibrary = Guid.NewGuid();
+    private readonly Guid _otherPublishedLibrary = Guid.NewGuid();
     private readonly MemoryStore _store = new();
     private readonly TwinInvitationSync _sync;
 
@@ -54,6 +55,7 @@ public sealed class TwinInvitationSyncTests
         library.Setup(l => l.GetVirtualFolders()).Returns(
         [
             new VirtualFolderInfo { Name = "TV", ItemId = _publishedLibrary.ToString("N") },
+            new VirtualFolderInfo { Name = "Films", ItemId = _otherPublishedLibrary.ToString("N") },
             new VirtualFolderInfo { Name = "Private", ItemId = Guid.NewGuid().ToString("N") }
         ]);
 
@@ -72,7 +74,7 @@ public sealed class TwinInvitationSyncTests
         Assert.Equal(_hash, dana.Password);
         Assert.False(dana.HasPermission(PermissionKind.IsAdministrator));
         Assert.False(dana.HasPermission(PermissionKind.EnableAllFolders));
-        Assert.Equal([_publishedLibrary], dana.GetPreferenceValues<Guid>(PreferenceKind.EnabledFolders));
+        Assert.Equal([_publishedLibrary, _otherPublishedLibrary], dana.GetPreferenceValues<Guid>(PreferenceKind.EnabledFolders));
 
         var person = Twin().Users.Single();
         Assert.Equal(dana.Id.ToString("N"), person.HomeId);
@@ -86,6 +88,19 @@ public sealed class TwinInvitationSyncTests
 
         Assert.Equal(0, await Run());
         Assert.Equal(2, _homeUsers.Count);
+    }
+
+    [Fact]
+    public async Task Sync_InvitationNamedLibraries_TheAccountSeesOnlyThoseThatArePublished()
+    {
+        SetTwin(new TwinInvitedUser { Id = FirstId, Name = "Dana", Password = _hash, Libraries = ["films", "Private", "No Such Library"] });
+
+        Assert.Equal(1, await Run());
+
+        var dana = _homeUsers.Single(u => u.Username == "Dana");
+        Assert.False(dana.HasPermission(PermissionKind.EnableAllFolders));
+        Assert.Equal([_otherPublishedLibrary], dana.GetPreferenceValues<Guid>(PreferenceKind.EnabledFolders));
+        Assert.Contains("\"Libraries\":[\"Films\"]", Text(TwinUsers.Key), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -146,7 +161,7 @@ public sealed class TwinInvitationSyncTests
         return user;
     }
 
-    private Task<int> Run() => _sync.SyncAsync(_store, ["TV"], TestContext.Current.CancellationToken);
+    private Task<int> Run() => _sync.SyncAsync(_store, ["TV", "Films"], false, TestContext.Current.CancellationToken);
 
     private string Text(string key) => Encoding.UTF8.GetString(_store.Objects[key].Content);
 

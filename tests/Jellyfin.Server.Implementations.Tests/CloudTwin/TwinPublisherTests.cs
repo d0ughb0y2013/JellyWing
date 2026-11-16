@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Emby.Server.Implementations.CloudTwin;
 using Emby.Server.Implementations.Library.OptimizedVersions;
+using Jellyfin.Data;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -49,10 +50,10 @@ public sealed class TwinPublisherTests : IDisposable
             .Returns(() => _items.ToArray());
 
         var users = new Mock<IUserManager>();
-        users.Setup(u => u.GetUsers()).Returns(
-        [
-            new Jellyfin.Database.Implementations.Entities.User("alice", "auth", "reset") { Password = "$PBKDF2-SHA512$iterations=1$AA$BB" }
-        ]);
+        var alice = new Jellyfin.Database.Implementations.Entities.User("alice", "auth", "reset") { Password = "$PBKDF2-SHA512$iterations=1$AA$BB" };
+        alice.AddDefaultPermissions();
+        alice.AddDefaultPreferences();
+        users.Setup(u => u.GetUsers()).Returns([alice]);
 
         _publisher = new TwinPublisher(
             _libraryManager.Object,
@@ -212,7 +213,7 @@ public sealed class TwinPublisherTests : IDisposable
         AddMovie("Plays Anywhere", "movie.mp4", playsAsIs: true);
 
         var result = await _publisher.PublishAsync(
-            new FolderObjectStore(_storeRoot), "test", ["Private"], new Progress<double>(), CancellationToken.None);
+            new FolderObjectStore(_storeRoot), "test", ["Private"], false, new Progress<double>(), CancellationToken.None);
 
         Assert.Equal((0, 0, 0, 0), result);
         Assert.Empty(Directory.EnumerateFiles(_storeRoot, "*.mp4", SearchOption.AllDirectories));
@@ -239,7 +240,7 @@ public sealed class TwinPublisherTests : IDisposable
             null);
 
     private Task<(int Published, int Unchanged, int Waiting, int Removed)> PublishAsync()
-        => _publisher.PublishAsync(new FolderObjectStore(_storeRoot), "test", ["Movies"], new Progress<double>(), CancellationToken.None);
+        => _publisher.PublishAsync(new FolderObjectStore(_storeRoot), "test", ["Movies"], false, new Progress<double>(), CancellationToken.None);
 
     private Movie AddMovie(string name, string file, bool playsAsIs, string? image = null)
     {

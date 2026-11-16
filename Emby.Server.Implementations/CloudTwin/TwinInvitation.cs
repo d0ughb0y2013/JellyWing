@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Emby.Server.Implementations.CloudTwin;
 
 /// <summary>
@@ -29,4 +31,9 @@ public class TwinInvitation
     /// Gets or sets when it was used, in milliseconds since 1970.
     /// </summary>
     public long? UsedAt { get; set; }
+
+    /// <summary>
+    /// Gets or sets the libraries whoever uses it may see. Nothing set means every published library.
+    /// </summary>
+    public IReadOnlyList<string>? Libraries { get; set; }
 }

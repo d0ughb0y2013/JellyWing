@@ -743,3 +743,114 @@ test('a server name cannot inject markup into the pages', async () => {
     const text = await (await twin.handle(new Request('https://twin.example/invite'))).text();
     assert.ok(!text.includes('<script>alert(1)'));
 });
+
+// Someone who may see the films but not the shows.
+async function withLimitedUser(libraries, run) {
+    const user = { Id: 'ffffffff000000000000000000000001', Name: 'Lim', Password: hashOf('limited password') };
+    if (libraries !== undefined) user.Libraries = libraries;
+    files['auth/users.json'].push(user);
+    try {
+        const twin = newTwin();
+        const token = (await post(twin, '/Users/AuthenticateByName', { Username: 'Lim', Pw: 'limited password' })).body.AccessToken;
+        await run(twin, token);
+    } finally {
+        files['auth/users.json'].pop();
+    }
+}
+
+test('a person sees only their libraries, everywhere', async () => {
+    await withLimitedUser(['movies'], async (twin, token) => {
+        const get = path => call(twin, path, { token });
+
+        assert.deepEqual((await get('/UserViews')).body.Items.map(v => v.Name), ['Movies']);
+        assert.deepEqual(names(await get('/Items?Recursive=true')), ['A Film']);
+        assert.deepEqual(names(await get('/Items?SearchTerm=show&Recursive=true')), []);
+        assert.deepEqual(names(await get('/Items?SearchTerm=first&Recursive=true')), []);
+        assert.deepEqual(names(await get(`/Items?Ids=${EPISODE_1},${MOVIE}`)), ['A Film']);
+
+        // Knowing an id is not enough: to this person the show is not there.
+        for (const path of [`/Items/${SERIES}`, `/Items/${EPISODE_1}`, `/Items/${EPISODE_1}/PlaybackInfo`, `/Videos/${EPISODE_1}/stream.mp4`,
+            `/UserItems/${EPISODE_1}/UserData`, `/Items/${EPISODE_1}/Ancestors`]) {
+            const answer = await get(path);
+            assert.ok(answer.status === 404 || (Array.isArray(answer.body) && answer.body.length === 0), `${path} answered ${answer.status}`);
+        }
+
+        assert.deepEqual((await get(`/Shows/${SERIES}/Episodes`)).body.Items, []);
+        assert.deepEqual((await get(`/Shows/${SERIES}/Seasons`)).body.Items, []);
+        for (const [path, method] of [[`/UserPlayedItems/${EPISODE_1}`, 'POST'], [`/UserFavoriteItems/${SERIES}`, 'POST'], [`/UserWatchlistItems/${SERIES}`, 'POST']]) {
+            assert.equal((await call(twin, path, { token, method })).status, 404, path);
+        }
+
+        await report(twin, token, '', EPISODE_1, 0);
+        assert.equal(texts.size, 0, 'a report about something hidden is not recorded');
+
+        // What they may see works as usual.
+        assert.equal((await get(`/Videos/${MOVIE}/stream.mp4`)).status, 302);
+        assert.equal((await call(twin, `/UserPlayedItems/${MOVIE}`, { token, method: 'POST' })).body.Played, true);
+    });
+});
+
+test('play state from a library a person lost does not show any more', async () => {
+    const id = 'ffffffff000000000000000000000001';
+    await withLimitedUser(['Movies'], async (twin, token) => {
+        texts.set(`state/${id}.json`, {
+            tag: 'home-1',
+            text: JSON.stringify({
+                Items: { [EPISODE_1]: { Played: true, PositionTicks: 0, PlayCount: 1, IsFavorite: true, LastPlayed: '2026-03-01T00:00:00Z', Changed: 1 } },
+                Watchlist: { [SERIES]: { On: true, Changed: 1 } }
+            })
+        });
+
+        for (const path of ['/Shows/NextUp', '/UserItems/Resume', '/UserWatchlistItems', '/Items?Filters=IsFavorite&Recursive=true']) {
+            assert.deepEqual((await call(twin, path, { token })).body.Items, [], path);
+        }
+
+        const stats = (await call(twin, '/UserStats', { token })).body;
+        assert.equal(stats.Episodes, 0);
+        assert.deepEqual(stats.TopSeries, []);
+    });
+});
+
+test('an empty list of libraries shows nothing, and no list at all shows everything', async () => {
+    await withLimitedUser([], async (twin, token) => {
+        assert.deepEqual((await call(twin, '/UserViews', { token })).body.Items, []);
+        assert.deepEqual((await call(twin, '/Items?Recursive=true', { token })).body.Items, []);
+        assert.equal((await call(twin, `/Videos/${MOVIE}/stream.mp4`, { token })).status, 404);
+    });
+
+    await withLimitedUser(undefined, async (twin, token) => {
+        assert.equal((await call(twin, '/UserViews', { token })).body.Items.length, 2);
+    });
+});
+
+test('an invitation can be for some libraries only, and that holds from the first sign-in', async () => {
+    const twin = newTwin();
+    const admin = await adminToken(twin);
+
+    assert.match((await post(twin, '/Twin/Invitations', { Libraries: [] }, admin)).body.error, /at least one/);
+    assert.match((await post(twin, '/Twin/Invitations', { Libraries: ['Secret'] }, admin)).body.error, /not published/);
+    assert.equal((await post(twin, '/Twin/Invitations', { Libraries: 'Movies' }, admin)).status, 400);
+
+    const made = (await post(twin, '/Twin/Invitations', { Libraries: ['movies', 'Movies'] }, admin)).body;
+    assert.deepEqual(made.Libraries, ['Movies']);
+    assert.deepEqual((await call(twin, '/Twin/Invitations', { token: admin })).body[0].Libraries, ['Movies']);
+
+    await post(twin, '/Twin/Invitations/Accept', { Code: made.Code, Name: 'Dana', Password: 'a long password' });
+    const token = (await post(twin, '/Users/AuthenticateByName', { Username: 'Dana', Pw: 'a long password' })).body.AccessToken;
+    assert.deepEqual((await call(twin, '/UserViews', { token })).body.Items.map(v => v.Name), ['Movies']);
+    assert.equal((await call(twin, `/Items/${EPISODE_1}`, { token })).status, 404);
+    assert.deepEqual(JSON.parse(texts.get(INVITATIONS).text).Users[0].Libraries, ['Movies']);
+});
+
+test('an administrator limited to some libraries cannot invite someone to the others', async () => {
+    const root = files['auth/users.json'].find(u => u.Name === 'Root');
+    root.Libraries = ['Movies'];
+    try {
+        const twin = newTwin();
+        const admin = await adminToken(twin);
+        assert.match((await post(twin, '/Twin/Invitations', { Libraries: ['TV'] }, admin)).body.error, /not published/);
+        assert.equal((await post(twin, '/Twin/Invitations', { Libraries: ['Movies'] }, admin)).status, 200);
+    } finally {
+        delete root.Libraries;
+    }
+});

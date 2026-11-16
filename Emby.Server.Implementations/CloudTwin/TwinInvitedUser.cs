@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Emby.Server.Implementations.CloudTwin;
 
 /// <summary>
@@ -39,4 +41,9 @@ public class TwinInvitedUser
     /// Gets or sets why the home server would not make the account, if it would not.
     /// </summary>
     public string? Rejected { get; set; }
+
+    /// <summary>
+    /// Gets or sets the libraries they were invited to. Nothing set means every published library.
+    /// </summary>
+    public IReadOnlyList<string>? Libraries { get; set; }
 }

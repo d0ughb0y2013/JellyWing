@@ -16,6 +16,9 @@ const SHELL = (title, body, script) => `<!doctype html>
   h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
   p { color: #b5b5b5; }
   label { display: block; margin: 1rem 0 .25rem; }
+  fieldset { margin: 1rem 0 0; padding: .5rem .75rem; border: 1px solid #3a3a3a; border-radius: .3rem; }
+  fieldset label { margin: .35rem 0; }
+  fieldset input { width: auto; margin-right: .5rem; }
   input, select { width: 100%; box-sizing: border-box; padding: .65rem; border: 1px solid #3a3a3a; border-radius: .3rem; background: #1c1c1c; color: inherit; font: inherit; }
   button { margin-top: 1.25rem; padding: .65rem 1.2rem; border: 0; border-radius: .3rem; background: #3aa0d8; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
   button.quiet { margin: 0; padding: .3rem .7rem; background: #333; font-weight: 400; }
@@ -101,11 +104,12 @@ export const invitePage = serverName => SHELL(`Invite someone to ${serverName}`,
 <form id="form" hidden>
   <label for="days">The link works for</label>
   <select id="days"><option value="1">1 day</option><option value="7" selected>7 days</option><option value="30">30 days</option></select>
+  <fieldset id="libraries"><legend>They can see</legend></fieldset>
   <button id="go">Make a link</button>
 </form>
 <div id="message" class="note" hidden></div>
 <div id="link" class="note" hidden></div>
-<table id="list" hidden><thead><tr><th>Made</th><th>By</th><th>State</th><th></th></tr></thead><tbody></tbody></table>`, `${COMMON}
+<table id="list" hidden><thead><tr><th>Made</th><th>By</th><th>Can see</th><th>State</th><th></th></tr></thead><tbody></tbody></table>`, `${COMMON}
 let token = null;
 try {
   const server = (JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}').Servers || []).find(s => s.AccessToken);
@@ -120,6 +124,7 @@ async function refresh() {
     const tr = body.insertRow();
     tr.insertCell().textContent = new Date(row.Created).toLocaleDateString();
     tr.insertCell().textContent = row.CreatedBy;
+    tr.insertCell().textContent = row.Libraries ? row.Libraries.join(', ') : 'Everything';
     tr.insertCell().textContent = row.State === 'Used' ? 'Used by ' + row.UsedBy : row.State === 'Open' ? 'Open until ' + new Date(row.Expires).toLocaleDateString() : row.State;
     const cell = tr.insertCell();
     if (row.State === 'Open') {
@@ -137,6 +142,16 @@ async function refresh() {
   if (!token) { $('signin').hidden = false; return; }
   try {
     await refresh();
+    const views = await api('GET', '/UserViews', null, token);
+    for (const view of views.Items) {
+      const label = document.createElement('label');
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = true;
+      box.value = view.Name;
+      label.append(box, view.Name);
+      $('libraries').appendChild(label);
+    }
     $('form').hidden = false;
   } catch (error) {
     $('signin').hidden = false;
@@ -148,7 +163,8 @@ $('form').addEventListener('submit', async event => {
   event.preventDefault();
   $('go').disabled = true;
   try {
-    const made = await api('POST', '/Twin/Invitations', { Days: Number($('days').value) }, token);
+    const libraries = [...$('libraries').querySelectorAll('input:checked')].map(box => box.value);
+    const made = await api('POST', '/Twin/Invitations', { Days: Number($('days').value), Libraries: libraries }, token);
     const url = location.origin + '/invite/accept#' + made.Code;
     show('link', url, 'good');
     show('message', 'Send this link to one person. It is shown only now.', '');

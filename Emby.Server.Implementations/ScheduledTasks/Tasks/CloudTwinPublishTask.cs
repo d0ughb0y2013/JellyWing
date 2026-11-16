@@ -74,7 +74,7 @@ public class CloudTwinPublishTask : IScheduledTask
 
         var (store, target) = TwinStoreFactory.Create(options, _httpClientFactory.CreateClient(NamedClient.Default));
 
-        await _publisher.PublishAsync(store, target, options.Libraries, progress, cancellationToken).ConfigureAwait(false);
+        await _publisher.PublishAsync(store, target, options.Libraries, options.IncludeLimitedUsers, progress, cancellationToken).ConfigureAwait(false);
         if (options.PublishWebClient)
         {
             await _webClientPublisher.PublishAsync(store, target, _applicationPaths.WebPath, cancellationToken).ConfigureAwait(false);
