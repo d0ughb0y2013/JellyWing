@@ -35,6 +35,10 @@ once, ahead of time.
   takes seconds.
 - **How to run it:** *Dashboard → Scheduled Tasks → Create optimized versions*. It has no
   default schedule. Start it by hand, or give it a schedule there.
+- **Automatically for new videos:** start the server with the setting
+  `optimizedVersions:auto=true` and every library scan is followed by a request for each
+  video that needs a copy and has none. It is off by default because it uses a lot of
+  processor time and disk space.
 - **Where copies live:** under the server's data folder in `optimized-versions/`, never
   inside a media library.
 - **Staying current:** a copy records the size and modified time of the file it was made
@@ -72,8 +76,13 @@ version* there, which deletes the copy and frees its disk space.
 
 A video that already plays everywhere shows only the normal *Download*. Requests are
 handled one at a time. Preparing and downloading need the same permission as downloading
-the original file. The list of waiting requests is kept in memory, so a request that had
-not started when the server restarts needs to be made again.
+the original file. The list of waiting requests is saved, so a restart picks up where the
+server left off.
+
+**A whole season or series.** The menu of a season or series offers *Prepare optimized
+versions of all episodes* while any episode in it still needs a copy. It queues every such
+episode at once. Each episode's copy is then downloaded from that episode's menu, and
+playback uses the copies as usual.
 
 ## Plugins installed at first setup
 

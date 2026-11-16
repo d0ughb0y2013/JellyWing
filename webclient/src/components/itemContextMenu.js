@@ -52,6 +52,46 @@ async function getWatchlistCommand(item) {
     }
 }
 
+/** Folders whose videos can all be given optimized versions in one request. */
+const OPTIMIZE_ALL_TYPES = [
+    BaseItemKind.Season,
+    BaseItemKind.Series
+];
+
+/**
+ * Builds the command that prepares optimized versions of every video in a season or
+ * series. There is none once they all have one, or if the server has no optimized versions.
+ */
+async function getOptimizeAllCommand(item) {
+    if (!OPTIMIZE_ALL_TYPES.includes(item.Type) || !item.ServerId) return null;
+
+    let status;
+    try {
+        status = await getOptimizedVersionStatus(ServerConnections.getApiClient(item.ServerId), item.Id);
+    } catch {
+        return null;
+    }
+
+    switch (status.State) {
+        case 'Queued':
+        case 'Running':
+            return {
+                name: globalize.translate('OptimizedVersionsPreparing'),
+                id: 'optimizedpending',
+                icon: 'hourglass_top'
+            };
+        case 'None':
+        case 'Failed':
+            return {
+                name: globalize.translate('PrepareOptimizedVersions'),
+                id: 'prepareoptimized',
+                icon: 'downloading'
+            };
+        default:
+            return null;
+    }
+}
+
 /**
  * Builds the optimized version commands for a video. There are none if it needs no
  * optimized version or the server has none.
@@ -282,6 +322,11 @@ export async function getCommands(options) {
                 id: 'downloadall',
                 icon: 'file_download'
             });
+
+            const optimizeAllCommand = await getOptimizeAllCommand(item);
+            if (optimizeAllCommand) {
+                commands.push(optimizeAllCommand);
+            }
         }
 
         // Books are promoted to major download Button and therefor excluded in the context menu

@@ -7,6 +7,7 @@ using System.Net.Http.Headers;
 using System.Net.Mime;
 using System.Text;
 using Emby.Server.Implementations.EntryPoints;
+using Emby.Server.Implementations.Library.OptimizedVersions;
 using Emby.Server.Implementations.Localization;
 using Jellyfin.Api.Middleware;
 using Jellyfin.Database.Implementations;
@@ -158,6 +159,7 @@ namespace Jellyfin.Server
             services.AddHostedService<RecordingNotifier>();
             services.AddHostedService<DeviceAccessHost>();
             services.AddHostedService<WatchlistWatchedCleaner>();
+            services.AddHostedService<OptimizedVersionQueueResumer>();
         }
 
         /// <summary>

@@ -44,15 +44,17 @@ public enum OptimizedVersionState
 public interface IOptimizedVersionManager
 {
     /// <summary>
-    /// Gets where an item stands.
+    /// Gets where an item stands. A folder stands where the videos in it that need an
+    /// optimized version stand: ready once all of them are.
     /// </summary>
     /// <param name="item">The item.</param>
-    /// <returns>The state, and the size of the optimized version when there is one.</returns>
+    /// <returns>The state, and the size of the optimized versions that exist.</returns>
     (OptimizedVersionState State, long? Size) GetStatus(BaseItem item);
 
     /// <summary>
-    /// Asks for an optimized version of an item to be made in the background.
-    /// Does nothing if the item has one, does not need one, or is already waiting.
+    /// Asks for an optimized version of an item to be made in the background. For a folder,
+    /// asks for one of every video in it. Does nothing for a video that has one, does not
+    /// need one, or is already waiting.
     /// </summary>
     /// <param name="item">The item.</param>
     /// <returns>Where the item stands after the request.</returns>
@@ -77,4 +79,10 @@ public interface IOptimizedVersionManager
     /// </summary>
     /// <returns>The number of copies and their total size in bytes.</returns>
     (int Count, long TotalSize) GetSummary();
+
+    /// <summary>
+    /// Puts back in line whatever was waiting when the server last stopped.
+    /// </summary>
+    /// <returns>The number of items put back in line.</returns>
+    int Resume();
 }

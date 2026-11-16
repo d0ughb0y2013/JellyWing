@@ -38,6 +38,7 @@ public sealed class OptimizedVersionManagerTests : IDisposable
         File.WriteAllText(source, "original");
         _movie = new Movie { Id = Guid.NewGuid(), Path = source, VideoType = VideoType.VideoFile, Container = "mkv" };
         _libraryManager.Setup(l => l.GetItemById(_movie.Id)).Returns(_movie);
+        _libraryManager.Setup(l => l.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
 
         // An HEVC file: players need it converted.
         StreamsAre(new MediaStream { Type = MediaStreamType.Video, Index = 0, Codec = "hevc", Width = 1920, Height = 1080 });
@@ -78,7 +79,8 @@ public sealed class OptimizedVersionManagerTests : IDisposable
     [Fact]
     public async Task Request_IsQueuedThenRunningThenReady()
     {
-        Assert.Equal(OptimizedVersionState.Queued, _manager.Request(_movie).State);
+        // The worker may pick the request up before the call returns.
+        Assert.Contains(_manager.Request(_movie).State, new[] { OptimizedVersionState.Queued, OptimizedVersionState.Running });
 
         await _maker.Started.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
         Assert.Equal(OptimizedVersionState.Running, _manager.GetStatus(_movie).State);
@@ -115,7 +117,7 @@ public sealed class OptimizedVersionManagerTests : IDisposable
         await WaitForAsync(OptimizedVersionState.Failed);
 
         _maker.Reset();
-        Assert.Equal(OptimizedVersionState.Queued, _manager.Request(_movie).State);
+        Assert.Contains(_manager.Request(_movie).State, new[] { OptimizedVersionState.Queued, OptimizedVersionState.Running });
         await _maker.Started.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
         _maker.Finish.SetResult(true);
         await WaitForAsync(OptimizedVersionState.Ready);
@@ -141,6 +143,72 @@ public sealed class OptimizedVersionManagerTests : IDisposable
         Assert.False(_manager.Delete(_movie));
     }
 
+    [Fact]
+    public async Task Request_ForAFolder_MakesACopyOfEveryVideoInIt()
+    {
+        var season = new Folder { Id = Guid.NewGuid() };
+        var second = AnotherMovie();
+        _libraryManager
+            .Setup(l => l.GetItemList(It.Is<InternalItemsQuery>(q => q.AncestorIds.Length == 1 && q.AncestorIds[0].Equals(season.Id))))
+            .Returns([_movie, second]);
+
+        Assert.Equal(OptimizedVersionState.None, _manager.GetStatus(season).State);
+
+        _maker.Finish.SetResult(true);
+        _manager.Request(season);
+        await WaitForAsync(OptimizedVersionState.Ready, season);
+
+        Assert.Equal(2, _maker.Calls);
+        Assert.Equal(_manager.GetStatus(_movie).Size + _manager.GetStatus(second).Size, _manager.GetStatus(season).Size);
+    }
+
+    [Fact]
+    public void GetStatus_FolderWhoseVideosAllPlayEverywhere_IsNotNeeded()
+    {
+        var season = new Folder { Id = Guid.NewGuid() };
+        _movie.Container = "mp4";
+        StreamsAre(new MediaStream { Type = MediaStreamType.Video, Index = 0, Codec = "h264", Width = 1280, Height = 720, BitDepth = 8 });
+        _libraryManager.Setup(l => l.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([_movie]);
+
+        Assert.Equal(OptimizedVersionState.NotNeeded, _manager.GetStatus(season).State);
+    }
+
+    [Fact]
+    public async Task Resume_PicksUpWhatWasWaitingWhenTheServerStopped()
+    {
+        // A request is waiting when the first server stops.
+        _manager.Request(_movie);
+        await _maker.Started.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        Assert.True(File.Exists(_store.QueuePath));
+
+        // A new server starts with nothing in memory.
+        var maker = new FakeMaker(_store);
+        maker.Finish.SetResult(true);
+        var restarted = new OptimizedVersionManager(
+            _libraryManager.Object,
+            _store,
+            maker,
+            Mock.Of<IHostApplicationLifetime>(),
+            NullLogger<OptimizedVersionManager>.Instance);
+
+        Assert.Equal(1, restarted.Resume());
+
+        for (var i = 0; i < 200 && restarted.GetStatus(_movie).State != OptimizedVersionState.Ready; i++)
+        {
+            await Task.Delay(25, TestContext.Current.CancellationToken);
+        }
+
+        Assert.Equal(OptimizedVersionState.Ready, restarted.GetStatus(_movie).State);
+        Assert.False(File.Exists(_store.QueuePath), "nothing is waiting any more");
+    }
+
+    [Fact]
+    public void Resume_NothingWasWaiting_DoesNothing()
+    {
+        Assert.Equal(0, _manager.Resume());
+        Assert.Equal(0, _maker.Calls);
+    }
+
     public void Dispose()
     {
         BaseItem.MediaSourceManager = _previousMediaSourceManager;
@@ -150,11 +218,21 @@ public sealed class OptimizedVersionManagerTests : IDisposable
     private void StreamsAre(params MediaStream[] streams)
         => _mediaSourceManager.Setup(m => m.GetMediaStreams(It.IsAny<MediaBrowser.Controller.Persistence.MediaStreamQuery>())).Returns(streams);
 
-    private async Task WaitForAsync(OptimizedVersionState expected)
+    private Movie AnotherMovie()
     {
+        var source = Path.Combine(_root, "second.mkv");
+        File.WriteAllText(source, "another original");
+        var movie = new Movie { Id = Guid.NewGuid(), Path = source, VideoType = VideoType.VideoFile, Container = "mkv" };
+        _libraryManager.Setup(l => l.GetItemById(movie.Id)).Returns(movie);
+        return movie;
+    }
+
+    private async Task WaitForAsync(OptimizedVersionState expected, BaseItem? item = null)
+    {
+        item ??= _movie;
         for (var i = 0; i < 200; i++)
         {
-            if (_manager.GetStatus(_movie).State == expected)
+            if (_manager.GetStatus(item).State == expected)
             {
                 return;
             }
@@ -162,7 +240,7 @@ public sealed class OptimizedVersionManagerTests : IDisposable
             await Task.Delay(25, TestContext.Current.CancellationToken);
         }
 
-        Assert.Equal(expected, _manager.GetStatus(_movie).State);
+        Assert.Equal(expected, _manager.GetStatus(item).State);
     }
 
     /// <summary>
@@ -194,7 +272,7 @@ public sealed class OptimizedVersionManagerTests : IDisposable
         public async Task<bool> MakeAsync(BaseItem item, CancellationToken cancellationToken)
         {
             Calls++;
-            Started.SetResult();
+            Started.TrySetResult();
             await Finish.Task.ConfigureAwait(false);
 
             var working = _store.GetWorkingPath(item.Id);

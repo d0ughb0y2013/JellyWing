@@ -102,7 +102,7 @@ Enough for the web client and the common apps to browse and play:
 |---|---|
 | Server | `GET /System/Info/Public` |
 | Sign-in | `POST /Users/AuthenticateByName`, `GET /Users/Me` |
-| Browse | `GET /UserViews`, `GET /Items`, `GET /Items/{id}`, `GET /Shows/{id}/Episodes`, `GET /Shows/NextUp`, `GET /Items/Latest`, `GET /Items/Resume` |
+| Browse | `GET /UserViews`, `GET /Items`, `GET /Items/{id}`, `GET /Shows/{id}/Episodes`, `GET /Shows/NextUp`, `GET /Items/Latest`, `GET /UserItems/Resume` |
 | Artwork | `GET /Items/{id}/Images/{type}` |
 | Play | `POST /Items/{id}/PlaybackInfo`, `POST /Sessions/Playing`, `/Progress`, `/Stopped` |
 | State | `POST` and `DELETE /UserPlayedItems/{id}`, `/UserFavoriteItems/{id}`, `/UserWatchlistItems/{id}` |

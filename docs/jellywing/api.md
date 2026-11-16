@@ -46,6 +46,12 @@ the state is `Ready`. The file is named after the original, with an `.mp4` exten
 
 `DELETE` returns `404` when the item has no copy, or one is being made at that moment.
 
+For a folder, such as a season or a series, the status and the request cover every video
+in it. `POST` queues each video that needs a copy. The status is `Ready` once all of them
+have one, `Running` or `Queued` while any is in progress, `Failed` when the only ones left
+without a copy failed, and `NotNeeded` when none of them needs one. `Size` is the total
+size of the copies that exist. The download and `DELETE` work on single videos only.
+
 ## Playback
 
 Two existing behaviors change when an item has an optimized copy:
@@ -70,3 +76,4 @@ be started and scheduled through the existing scheduled task endpoints.
 |---|---|---|
 | `plugins:installRecommended` | `true` | Whether a new server installs the recommended plugins when setup first completes |
 | `watchlist:removeWatched` | `true` | Whether an item leaves a user's watchlist once the user has watched it |
+| `optimizedVersions:auto` | `false` | Whether each library scan is followed by a request for an optimized version of every video that needs one and has none |

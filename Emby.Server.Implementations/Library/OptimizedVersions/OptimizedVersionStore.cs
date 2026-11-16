@@ -32,6 +32,11 @@ public class OptimizedVersionStore
     }
 
     /// <summary>
+    /// Gets the file that lists the items waiting for an optimized version.
+    /// </summary>
+    public string QueuePath => Path.Combine(_root, "queue.json");
+
+    /// <summary>
     /// Gets where an item's optimized version is, or would be, stored.
     /// </summary>
     /// <param name="itemId">The item id.</param>

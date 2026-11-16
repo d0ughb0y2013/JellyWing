@@ -85,6 +85,11 @@ namespace MediaBrowser.Controller.Extensions
         public const string WatchlistRemoveWatchedKey = "watchlist:removeWatched";
 
         /// <summary>
+        /// The key for whether videos found by a library scan get an optimized version automatically.
+        /// </summary>
+        public const string OptimizeNewVideosKey = "optimizedVersions:auto";
+
+        /// <summary>
         /// Gets a value indicating whether the application should host static web content from the <see cref="IConfiguration"/>.
         /// </summary>
         /// <param name="configuration">The configuration to retrieve the value from.</param>
@@ -108,6 +113,14 @@ namespace MediaBrowser.Controller.Extensions
         /// <returns><c>true</c> unless turned off.</returns>
         public static bool GetWatchlistRemoveWatched(this IConfiguration configuration)
             => configuration.GetValue(WatchlistRemoveWatchedKey, true);
+
+        /// <summary>
+        /// Gets whether videos found by a library scan get an optimized version automatically.
+        /// </summary>
+        /// <param name="configuration">The configuration to read the setting from.</param>
+        /// <returns><c>true</c> if turned on.</returns>
+        public static bool GetOptimizeNewVideos(this IConfiguration configuration)
+            => configuration.GetValue(OptimizeNewVideosKey, false);
 
         /// <summary>
         /// Gets the FFmpeg probe size from the <see cref="IConfiguration" />.
