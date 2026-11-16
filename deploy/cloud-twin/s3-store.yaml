@@ -22,6 +22,11 @@ Resources:
               SSEAlgorithm: AES256
       LifecycleConfiguration:
         Rules:
+          # Sign-in attempt counters are only good for minutes.
+          - Id: ExpireSignInLimits
+            Status: Enabled
+            Prefix: state/limits/
+            ExpirationInDays: 1
           - Id: AbortStalledUploads
             Status: Enabled
             AbortIncompleteMultipartUpload:

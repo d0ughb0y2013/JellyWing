@@ -34,7 +34,7 @@ export async function handler(event) {
         method,
         headers: event.headers,
         body: hasBody ? Buffer.from(event.body, event.isBase64Encoded ? 'base64' : 'utf8') : undefined
-    }));
+    }), { clientAddress: event.requestContext.http.sourceIp });
 
     const headers = Object.fromEntries(answer.headers);
     let bytes = Buffer.from(await answer.arrayBuffer());

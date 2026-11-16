@@ -70,6 +70,23 @@ Everything else answers 404. `/Items` understands `ParentId`, `IncludeItemTypes`
 `Recursive`, `Ids`, `SearchTerm`, `Filters` (favorite, played, unplayed, resumable), `SortBy`,
 `SortOrder`, `StartIndex` and `Limit`.
 
+## Sign-in limits
+
+Wrong passwords are counted per user name and per caller address. After 10 for one name,
+or 20 from one address, in 15 minutes, further attempts for that name or from that address
+get a 429 with `Retry-After`, and the password is not looked at, until the window has
+passed. A sign-in that works clears the count for that name. Unknown names count the same
+as known ones. An IPv6 caller is counted by its /64.
+
+The counts are kept in the store under `state/limits/`, by a hash of the name or address,
+so every running copy shares them. Each copy also counts on its own, so the limit still
+stands if the store cannot be read or written. Whoever runs the twin passes in the
+caller's address as the host saw it: `twin.handle(request, { clientAddress })`. Without
+one, all callers share a single limit.
+
+Someone who knows a user name can keep that name locked by guessing wrong on purpose. The
+lock only affects signing in; devices already signed in keep working.
+
 ## How sign-in works
 
 The server publishes each user's name and password hash, never the password. The twin

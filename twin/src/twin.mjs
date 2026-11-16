@@ -4,6 +4,7 @@
 // It is written against web-standard Request and Response so the same code runs behind
 // a cloud function, in a worker, and in the local server in local.mjs.
 
+import { createSignInLimiter } from './ratelimit.mjs';
 import { createPlayState, episodesUnder, nextUp, resumeItems, userDataOf, viewingStats, watchlistItems } from './playstate.mjs';
 
 const encoder = new TextEncoder();
@@ -64,6 +65,7 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
 
     const cache = {};
     const playState = createPlayState({ store, now });
+    const signInLimiter = createSignInLimiter({ store, now });
     const NO_STATE = { Items: {}, Watchlist: {} };
     let serverId;
 
@@ -553,7 +555,7 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
         return null;
     }
 
-    async function signIn(request) {
+    async function signIn(request, clientAddress) {
         let body;
         try {
             body = await request.json();
@@ -561,17 +563,33 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
             return json({ error: 'A user name and password are required.' }, 400);
         }
 
+        // Past the limit the password is not even looked at, right or wrong.
+        const wait = await signInLimiter.waitFor(body.Username, clientAddress);
+        if (wait > 0) {
+            const minutes = Math.ceil(wait / 60000);
+            return new Response(JSON.stringify({ error: `Too many sign-in attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.` }), {
+                status: 429,
+                headers: { 'Content-Type': 'application/json; charset=utf-8', 'Retry-After': String(Math.ceil(wait / 1000)), ...cors }
+            });
+        }
+
         const users = await cached('auth/users.json');
         const user = users.find(u => (u.Name || '').toLowerCase() === String(body.Username || '').toLowerCase());
 
         // The check runs even for an unknown name, so the answer takes as long either way.
         const ok = await verifyPassword(String(body.Pw ?? ''), user?.Password || '$PBKDF2-SHA512$iterations=210000$00$00');
-        if (!user || !ok) return json({ error: 'Invalid user name or password.' }, 401);
+        if (!user || !ok) {
+            // Counted the same whether or not the name exists, so the answer gives nothing away.
+            await signInLimiter.failed(body.Username, clientAddress);
+            return json({ error: 'Invalid user name or password.' }, 401);
+        }
+
+        await signInLimiter.succeeded(body.Username, clientAddress);
 
         return json({ User: await userDto(user), AccessToken: await issueToken(user), ServerId: await getServerId(), SessionInfo: {} });
     }
 
-    async function handle(request) {
+    async function handle(request, clientAddress) {
         const url = new URL(request.url);
         const method = request.method.toUpperCase();
         const path = url.pathname.replace(/\/+$/, '') || '/';
@@ -593,7 +611,7 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
             });
         }
 
-        if (route('POST', 'users', 'authenticatebyname')) return signIn(request);
+        if (route('POST', 'users', 'authenticatebyname')) return signIn(request, clientAddress);
         if (route('GET', 'users', 'public')) return json([]);
         if (route('GET', 'system', 'ping') || route('POST', 'system', 'ping')) return json('Jellyfin Server');
         if (route('GET', 'branding', 'configuration')) return json({ LoginDisclaimer: null, CustomCss: null, SplashscreenEnabled: false });
@@ -670,9 +688,15 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
     }
 
     return {
-        async handle(request) {
+        /**
+         * Answers a request.
+         * @param {Request} request The request.
+         * @param {{clientAddress?: string}} [caller] The caller's network address as the host saw it, never as the
+         * caller claims it. Sign-in attempts are limited per address; without one, all callers share a limit.
+         */
+        async handle(request, caller = {}) {
             try {
-                return await handle(request);
+                return await handle(request, caller.clientAddress);
             } catch (error) {
                 console.error('[twin]', error);
                 return json({ error: 'The cloud twin could not answer.' }, 500);

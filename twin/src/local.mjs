@@ -76,7 +76,7 @@ createServer(async (request, response) => {
         method: request.method,
         headers: request.headers,
         body: hasBody ? Buffer.concat(chunks) : undefined
-    }));
+    }), { clientAddress: request.socket.remoteAddress });
 
     if (process.env.TWIN_LOG && answer.status >= 400) {
         console.log(`${answer.status} ${request.method} ${request.url.split('?')[0]}`);

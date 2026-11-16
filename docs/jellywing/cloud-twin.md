@@ -163,8 +163,8 @@ bucket and write only under `state/`, where play state is kept. The secret that 
 
 Things to know about this deployment:
 
-- The address is public. Sign-in is the only protection, and there is no limit yet on how
-  often a sign-in may be attempted.
+- The address is public and sign-in is the only protection. Wrong passwords are limited to
+  10 per user name and 20 per caller address in 15 minutes; see `twin/README.md`.
 - Links to files are signed with the function's temporary credentials, so a link can stop
   working before its six hours are up, when those credentials rotate.
 - The function reads the catalog and the user list at most once a minute, so a publish
@@ -235,6 +235,7 @@ What lands in the store:
 | `auth/users.json` | Each enabled user's id, name and password hash. Never a password |
 | `web/...` | The server's web client, file for file, which the twin serves at `/web/` |
 | `state/<user id>.json` | That user's play state and watchlist. Written by the twin and by the server's sync |
+| `state/limits/...` | Counts of recent failed sign-ins, written by the twin. Safe to delete; the template's bucket removes them after a day |
 
 Movies, series, seasons and episodes are published. A video that still needs an optimized
 version is asked for one and published on a later run. Only what changed since the last

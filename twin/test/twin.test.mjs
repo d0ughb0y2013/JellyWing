@@ -39,10 +39,16 @@ const bytesRead = [];
 const texts = new Map();
 const writes = [];
 let failNextWrite = false;
+let refuseWrites = false;
+let refuseReads = false;
 
 const store = {
-    getText: async key => (texts.has(key) ? { ...texts.get(key) } : null),
+    getText: async key => {
+        if (refuseReads) throw new Error('The store answered 500');
+        return texts.has(key) ? { ...texts.get(key) } : null;
+    },
     putText: async (key, text, tag) => {
+        if (refuseWrites) throw new Error('The store answered 403');
         if (failNextWrite) {
             // Someone else wrote first.
             failNextWrite = false;
@@ -64,15 +70,22 @@ const store = {
     signedUrl: async (key, seconds) => `https://cdn.example/${key}?expires=${seconds}`
 };
 
-function newTwin(now) {
-    texts.clear();
-    writes.length = 0;
+function newTwin(now, { keep = false } = {}) {
+    if (!keep) {
+        texts.clear();
+        writes.length = 0;
+        refuseWrites = false;
+        refuseReads = false;
+    }
+
     return createTwin({ store, tokenSecret: 'a-test-secret-of-enough-length', now });
 }
 
-async function call(twin, path, { method = 'GET', token, body } = {}) {
+async function call(twin, path, { method = 'GET', token, body, from } = {}) {
     const headers = token ? { Authorization: `MediaBrowser Client="test", Token="${token}"` } : {};
-    const response = await twin.handle(new Request('https://twin.example' + path, { method, headers, body: body && JSON.stringify(body) }));
+    const response = await twin.handle(
+        new Request('https://twin.example' + path, { method, headers, body: body && JSON.stringify(body) }),
+        { clientAddress: from });
     const text = await response.text();
     return { status: response.status, headers: response.headers, body: text ? JSON.parse(text) : null };
 }
@@ -450,4 +463,95 @@ test('stats count what was watched in the year', async () => {
     assert.equal(stats.BusiestMonth, 5);
     assert.equal(stats.WatchTimeTicks, MINUTE);
     assert.deepEqual(stats.TopSeries.map(s => [s.Name, s.Count]), [['A Show', 2]]);
+});
+
+const attempt = (twin, name, password, from = '203.0.113.7') =>
+    call(twin, '/Users/AuthenticateByName', { method: 'POST', body: { Username: name, Pw: password }, from });
+
+test('too many wrong passwords for a name lock it for a while, even for the right password', async () => {
+    let clock = Date.UTC(2026, 10, 16);
+    const twin = newTwin(() => clock);
+
+    for (let i = 0; i < 10; i++) {
+        assert.equal((await attempt(twin, 'Alice', 'wrong ' + i, `198.51.100.${i}`)).status, 401);
+        clock += 1000;
+    }
+
+    const refused = await attempt(twin, 'alice', 'correct horse', '192.0.2.50');
+    assert.equal(refused.status, 429);
+    assert.ok(Number(refused.headers.get('retry-after')) > 14 * 60);
+    assert.match(refused.body.error, /15 minutes/);
+
+    // Someone else's name is not affected, and the lock ends on its own.
+    assert.equal((await attempt(twin, 'bob', 'x', '192.0.2.50')).status, 401);
+    clock += 15 * 60 * 1000;
+    assert.equal((await attempt(twin, 'alice', 'correct horse', '192.0.2.50')).status, 200);
+});
+
+test('one caller guessing across many names is stopped too', async () => {
+    const twin = newTwin();
+    for (let i = 0; i < 20; i++) {
+        assert.equal((await attempt(twin, 'name' + i, 'guess')).status, 401);
+    }
+
+    assert.equal((await attempt(twin, 'alice', 'correct horse')).status, 429);
+    assert.equal((await attempt(twin, 'alice', 'correct horse', '203.0.113.99')).status, 200);
+});
+
+test('a caller with a block of IPv6 addresses counts as one', async () => {
+    const twin = newTwin();
+    for (let i = 0; i < 20; i++) {
+        await attempt(twin, 'name' + i, 'guess', `2001:db8:1:2::${i.toString(16)}`);
+    }
+
+    assert.equal((await attempt(twin, 'alice', 'correct horse', '2001:db8:1:2:ffff::1')).status, 429);
+    assert.equal((await attempt(twin, 'alice', 'correct horse', '2001:db8:1:3::1')).status, 200);
+});
+
+test('a sign-in that works clears the count for that name', async () => {
+    const twin = newTwin();
+    for (let round = 0; round < 3; round++) {
+        for (let i = 0; i < 6; i++) {
+            assert.equal((await attempt(twin, 'alice', 'wrong', `198.51.100.${round * 10 + i}`)).status, 401);
+        }
+
+        assert.equal((await attempt(twin, 'alice', 'correct horse', '192.0.2.50')).status, 200);
+    }
+});
+
+test('every copy of the twin sees the same count', async () => {
+    const first = newTwin();
+    const second = newTwin(undefined, { keep: true });
+    for (let i = 0; i < 10; i++) {
+        await attempt(i % 2 ? first : second, 'alice', 'wrong', `198.51.100.${i}`);
+    }
+
+    assert.equal((await attempt(first, 'alice', 'correct horse', '192.0.2.50')).status, 429);
+    assert.equal((await attempt(second, 'alice', 'correct horse', '192.0.2.50')).status, 429);
+    assert.ok([...texts.keys()].every(key => key.startsWith('state/limits/')));
+    assert.ok(![...texts.values()].some(entry => /alice|198\.51/i.test(entry.text)), 'no names or addresses are stored');
+});
+
+test('the limit still stands when the store cannot be written or read', async () => {
+    for (const breakStore of [() => { refuseWrites = true; }, () => { refuseReads = true; }]) {
+        const twin = newTwin();
+        breakStore();
+        for (let i = 0; i < 10; i++) {
+            assert.equal((await attempt(twin, 'alice', 'wrong', `198.51.100.${i}`)).status, 401);
+        }
+
+        assert.equal((await attempt(twin, 'alice', 'correct horse', '192.0.2.50')).status, 429);
+    }
+
+    refuseWrites = false;
+    refuseReads = false;
+});
+
+test('callers with no known address share one limit', async () => {
+    const twin = newTwin();
+    for (let i = 0; i < 20; i++) {
+        await call(twin, '/Users/AuthenticateByName', { method: 'POST', body: { Username: 'name' + i, Pw: 'guess' } });
+    }
+
+    assert.equal((await call(twin, '/Users/AuthenticateByName', { method: 'POST', body: { Username: 'alice', Pw: 'correct horse' } })).status, 429);
 });
