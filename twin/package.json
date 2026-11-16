@@ -1,0 +1,12 @@
+{
+  "name": "jellywing-twin",
+  "version": "0.1.0",
+  "description": "The JellyWing cloud twin: a small API that lets apps browse and play a library published to object storage.",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/local.mjs",
+    "test": "node --test"
+  }
+}

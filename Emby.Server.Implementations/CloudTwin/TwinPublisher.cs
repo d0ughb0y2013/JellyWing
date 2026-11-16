@@ -8,7 +8,9 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Emby.Server.Implementations.Library.OptimizedVersions;
+using Jellyfin.Data;
 using Jellyfin.Data.Enums;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Extensions.Json;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities;
@@ -26,8 +28,11 @@ namespace Emby.Server.Implementations.CloudTwin;
 public class TwinPublisher
 {
     private const string IndexKey = "catalog/index.json";
+    private const string CatalogKey = "catalog/all.json";
+    private const string UsersKey = "auth/users.json";
 
     private readonly ILibraryManager _libraryManager;
+    private readonly IUserManager _userManager;
     private readonly IOptimizedVersionManager _optimizedVersions;
     private readonly IOptimizedVersionMaker _maker;
     private readonly ILogger<TwinPublisher> _logger;
@@ -37,12 +42,14 @@ public class TwinPublisher
     /// Initializes a new instance of the <see cref="TwinPublisher"/> class.
     /// </summary>
     /// <param name="libraryManager">The library manager.</param>
+    /// <param name="userManager">The user manager.</param>
     /// <param name="optimizedVersions">The optimized version manager.</param>
     /// <param name="maker">The optimized version maker.</param>
     /// <param name="applicationPaths">The application paths.</param>
     /// <param name="logger">The logger.</param>
     public TwinPublisher(
         ILibraryManager libraryManager,
+        IUserManager userManager,
         IOptimizedVersionManager optimizedVersions,
         IOptimizedVersionMaker maker,
         IApplicationPaths applicationPaths,
@@ -51,6 +58,7 @@ public class TwinPublisher
         ArgumentNullException.ThrowIfNull(applicationPaths);
 
         _libraryManager = libraryManager;
+        _userManager = userManager;
         _optimizedVersions = optimizedVersions;
         _maker = maker;
         _logger = logger;
@@ -82,6 +90,7 @@ public class TwinPublisher
         var unchanged = 0;
         var waiting = 0;
         var current = new HashSet<Guid>();
+        var records = new List<byte[]>();
 
         var items = GetItems(libraries);
         for (var i = 0; i < items.Count; i++)
@@ -108,7 +117,9 @@ public class TwinPublisher
             }
 
             current.Add(item.Id);
-            if (await PublishItemAsync(store, state, item, library, mediaPath, cancellationToken).ConfigureAwait(false))
+            var (changed, record) = await PublishItemAsync(store, state, item, library, mediaPath, cancellationToken).ConfigureAwait(false);
+            records.Add(record);
+            if (changed)
             {
                 published++;
                 SaveState(state);
@@ -134,6 +145,32 @@ public class TwinPublisher
             SaveState(state);
         }
 
+        // The twin's API reads the whole catalog and the user list in one request each.
+        var catalog = new byte[records.Sum(r => r.Length) + records.Count + 2];
+        var position = 0;
+        catalog[position++] = (byte)'[';
+        foreach (var record in records)
+        {
+            if (position > 1)
+            {
+                catalog[position++] = (byte)',';
+            }
+
+            record.CopyTo(catalog, position);
+            position += record.Length;
+        }
+
+        catalog[position++] = (byte)']';
+        state.CatalogHash = await PutIfChangedAsync(store, CatalogKey, catalog.AsMemory(0, position), state.CatalogHash, cancellationToken).ConfigureAwait(false);
+
+        // Password hashes, never passwords: the twin checks a sign-in the same way the server does.
+        var users = _userManager.GetUsers()
+            .Where(u => !u.HasPermission(PermissionKind.IsDisabled))
+            .OrderBy(u => u.Username, StringComparer.Ordinal)
+            .Select(u => new { u.Id, Name = u.Username, u.Password });
+        state.UsersHash = await PutIfChangedAsync(store, UsersKey, JsonSerializer.SerializeToUtf8Bytes(users, JsonDefaults.Options), state.UsersHash, cancellationToken).ConfigureAwait(false);
+        SaveState(state);
+
         progress.Report(100);
         _logger.LogInformation(
             "Cloud twin: {Published} published, {Unchanged} unchanged, {Waiting} waiting for an optimized version, {Removed} removed.",
@@ -142,6 +179,17 @@ public class TwinPublisher
             waiting,
             removed);
         return (published, unchanged, waiting, removed);
+    }
+
+    private static async Task<string> PutIfChangedAsync(IObjectStore store, string key, ReadOnlyMemory<byte> content, string? previousHash, CancellationToken cancellationToken)
+    {
+        var hash = Convert.ToHexStringLower(SHA256.HashData(content.Span));
+        if (hash != previousHash)
+        {
+            await store.PutBytesAsync(key, content, "application/json", cancellationToken).ConfigureAwait(false);
+        }
+
+        return hash;
     }
 
     private static string Stamp(string path)
@@ -204,7 +252,7 @@ public class TwinPublisher
         return null;
     }
 
-    private async Task<bool> PublishItemAsync(IObjectStore store, TwinPublishState state, BaseItem item, string library, string? mediaPath, CancellationToken cancellationToken)
+    private async Task<(bool Changed, byte[] Record)> PublishItemAsync(IObjectStore store, TwinPublishState state, BaseItem item, string library, string? mediaPath, CancellationToken cancellationToken)
     {
         state.Items.TryGetValue(item.Id, out var before);
         var after = new TwinPublishedItem();
@@ -275,7 +323,7 @@ public class TwinPublisher
         }
 
         state.Items[item.Id] = after;
-        return changed;
+        return (changed, record);
     }
 
     private async Task RemoveItemAsync(IObjectStore store, TwinPublishState state, Guid itemId, CancellationToken cancellationToken)

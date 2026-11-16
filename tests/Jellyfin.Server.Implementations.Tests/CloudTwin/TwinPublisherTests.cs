@@ -48,8 +48,15 @@ public sealed class TwinPublisherTests : IDisposable
             .Setup(l => l.GetItemList(It.Is<InternalItemsQuery>(q => q.AncestorIds.Length == 1 && q.AncestorIds[0].Equals(_libraryId))))
             .Returns(() => _items.ToArray());
 
+        var users = new Mock<IUserManager>();
+        users.Setup(u => u.GetUsers()).Returns(
+        [
+            new Jellyfin.Database.Implementations.Entities.User("alice", "auth", "reset") { Password = "$PBKDF2-SHA512$iterations=1$AA$BB" }
+        ]);
+
         _publisher = new TwinPublisher(
             _libraryManager.Object,
+            users.Object,
             _optimizedVersions.Object,
             _maker.Object,
             paths.Object,
@@ -164,6 +171,23 @@ public sealed class TwinPublisherTests : IDisposable
     }
 
     [Fact]
+    public async Task Publish_WritesTheCombinedCatalogAndTheUserList()
+    {
+        var movie = AddMovie("Plays Anywhere", "movie.mp4", playsAsIs: true);
+
+        await PublishAsync();
+
+        var catalog = JsonSerializer.Deserialize<TwinRecord[]>(
+            await File.ReadAllBytesAsync(StorePath("catalog/all.json"), TestContext.Current.CancellationToken),
+            Jellyfin.Extensions.Json.JsonDefaults.Options)!;
+        Assert.Equal(movie.Id, Assert.Single(catalog).Id);
+
+        var users = await File.ReadAllTextAsync(StorePath("auth/users.json"), TestContext.Current.CancellationToken);
+        Assert.Contains("\"Name\":\"alice\"", users, StringComparison.Ordinal);
+        Assert.Contains("$PBKDF2-SHA512$", users, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Publish_LibraryNotNamed_IsLeftAlone()
     {
         AddMovie("Plays Anywhere", "movie.mp4", playsAsIs: true);
@@ -172,7 +196,8 @@ public sealed class TwinPublisherTests : IDisposable
             new FolderObjectStore(_storeRoot), "test", ["Private"], new Progress<double>(), CancellationToken.None);
 
         Assert.Equal((0, 0, 0, 0), result);
-        Assert.Empty(Directory.EnumerateFiles(_storeRoot, "*", SearchOption.AllDirectories));
+        Assert.Empty(Directory.EnumerateFiles(_storeRoot, "*.mp4", SearchOption.AllDirectories));
+        Assert.Equal("[]", await File.ReadAllTextAsync(StorePath("catalog/all.json"), TestContext.Current.CancellationToken));
     }
 
     [Fact]

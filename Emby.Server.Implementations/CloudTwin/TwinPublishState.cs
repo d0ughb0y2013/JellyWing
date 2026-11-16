@@ -14,6 +14,16 @@ public class TwinPublishState
     public string Target { get; set; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the hash of the combined catalog that was last published.
+    /// </summary>
+    public string? CatalogHash { get; set; }
+
+    /// <summary>
+    /// Gets or sets the hash of the user list that was last published.
+    /// </summary>
+    public string? UsersHash { get; set; }
+
+    /// <summary>
     /// Gets or sets what was published for each item.
     /// </summary>
     public Dictionary<Guid, TwinPublishedItem> Items { get; set; } = [];

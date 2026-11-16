@@ -38,6 +38,8 @@ Each feature is described in [docs/jellywing/features.md](docs/jellywing/feature
 JellyWing is free software under the GNU General Public License, version 2, the same
 license as the Jellyfin server it is built on. See [LICENSE](LICENSE). The web client in
 `webclient/` is licensed under the GPL, version 2 or later; see `webclient/LICENSE`.
+The cloud twin API in `twin/` is a separate program that shares no code with the server; it
+is under the MIT license, see `twin/LICENSE`.
 
 Jellyfin is a project of its contributors. JellyWing uses its own name and logo and does
 not use Jellyfin's branding for itself.

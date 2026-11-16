@@ -6,6 +6,8 @@
 |---|---|
 | Everything outside `webclient/` | The Jellyfin server, with JellyWing's changes |
 | `webclient/` | The Jellyfin web client, with JellyWing's changes |
+| `twin/` | The cloud twin API: a separate, dependency-free Node program under the MIT license |
+| `deploy/` | Infrastructure templates |
 | `docs/jellywing/` | JellyWing's own documentation |
 | `README.jellyfin.md` | The Jellyfin server's original README |
 

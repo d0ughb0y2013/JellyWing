@@ -1,7 +1,9 @@
 # Cloud twin: design
 
-Status: the first step, publishing, is built. The twin API, playback, play state sync and
-invitations are not. See [Build order](#build-order) for where things stand.
+Status: publishing is built, and so is a twin API that signs users in, lets them browse,
+and plays by handing out links to the files. Play state sync and invitations are not built,
+and the API has not been deployed anywhere yet; it runs locally. See
+[Build order](#build-order) for where things stand.
 
 ## Goal
 
@@ -137,8 +139,11 @@ carry its own license.
 
 1. **Done.** Publish chosen libraries to storage and write catalog records. See
    [Publishing today](#publishing-today).
-2. Twin API for sign-in, browsing and artwork. Verify with the web client pointed at it.
-3. Playback through signed links, and progress reporting.
+2. **Done, running locally.** Twin API for sign-in, browsing and artwork, in `twin/`. It
+   has been checked with scripted requests; the web client has not been pointed at it yet
+   and will need more of the API than is there.
+3. **Partly done.** Playback through signed links works. Progress reports are accepted
+   and dropped.
 4. Play state and watchlist sync in both directions.
 5. Invitations.
 
@@ -181,6 +186,8 @@ What lands in the store:
 | `images/<item id>.<ext>` | The item's poster or thumbnail |
 | `catalog/<item id>.json` | The item's record: name, type, series and season, numbers, description, running time, genres, and the keys above |
 | `catalog/index.json` | The ids of every published item |
+| `catalog/all.json` | Every record in one file, which is what the twin API reads |
+| `auth/users.json` | Each enabled user's id, name and password hash. Never a password |
 
 Movies, series, seasons and episodes are published. A video that still needs an optimized
 version is asked for one and published on a later run. Only what changed since the last
