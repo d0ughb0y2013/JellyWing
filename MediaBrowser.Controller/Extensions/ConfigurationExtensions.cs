@@ -75,6 +75,11 @@ namespace MediaBrowser.Controller.Extensions
         public const string DetectNetworkChangeKey = "DetectNetworkChange";
 
         /// <summary>
+        /// The key for whether a new server installs the recommended plugins when setup completes.
+        /// </summary>
+        public const string InstallRecommendedPluginsKey = "plugins:installRecommended";
+
+        /// <summary>
         /// Gets a value indicating whether the application should host static web content from the <see cref="IConfiguration"/>.
         /// </summary>
         /// <param name="configuration">The configuration to retrieve the value from.</param>
@@ -82,6 +87,14 @@ namespace MediaBrowser.Controller.Extensions
         /// <exception cref="FormatException">The config value is not a valid bool string. See <see cref="bool.Parse(string)"/>.</exception>
         public static bool HostWebClient(this IConfiguration configuration)
             => configuration.GetValue<bool>(HostWebClientKey);
+
+        /// <summary>
+        /// Gets whether a new server installs the recommended plugins when setup completes.
+        /// </summary>
+        /// <param name="configuration">The configuration to read the setting from.</param>
+        /// <returns><c>true</c> unless turned off.</returns>
+        public static bool GetInstallRecommendedPlugins(this IConfiguration configuration)
+            => configuration.GetValue(InstallRecommendedPluginsKey, true);
 
         /// <summary>
         /// Gets the FFmpeg probe size from the <see cref="IConfiguration" />.

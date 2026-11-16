@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Jellyfin.Api.Models.StartupDtos;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Common.Net;
+using MediaBrowser.Common.Updates;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
@@ -20,16 +21,22 @@ public class StartupController : BaseJellyfinApiController
 {
     private readonly IServerConfigurationManager _config;
     private readonly IUserManager _userManager;
+    private readonly IRecommendedPluginInstaller _recommendedPluginInstaller;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="StartupController" /> class.
     /// </summary>
     /// <param name="config">The server configuration manager.</param>
     /// <param name="userManager">The user manager.</param>
-    public StartupController(IServerConfigurationManager config, IUserManager userManager)
+    /// <param name="recommendedPluginInstaller">The recommended plugin installer.</param>
+    public StartupController(
+        IServerConfigurationManager config,
+        IUserManager userManager,
+        IRecommendedPluginInstaller recommendedPluginInstaller)
     {
         _config = config;
         _userManager = userManager;
+        _recommendedPluginInstaller = recommendedPluginInstaller;
     }
 
     /// <summary>
@@ -41,8 +48,15 @@ public class StartupController : BaseJellyfinApiController
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public ActionResult CompleteWizard()
     {
+        var firstCompletion = !_config.Configuration.IsStartupWizardCompleted;
         _config.Configuration.IsStartupWizardCompleted = true;
         _config.SaveConfiguration();
+
+        if (firstCompletion)
+        {
+            _recommendedPluginInstaller.QueueInstall();
+        }
+
         return NoContent();
     }
 
