@@ -540,6 +540,7 @@ namespace Emby.Server.Implementations
             serviceCollection.AddSingleton<ISocketFactory, SocketFactory>();
 
             serviceCollection.AddSingleton<IInstallationManager, InstallationManager>();
+            serviceCollection.AddSingleton<IRecommendedPluginInstaller, RecommendedPluginInstaller>();
 
             serviceCollection.AddSingleton<IServerApplicationHost>(this);
             serviceCollection.AddSingleton(ApplicationPaths);
