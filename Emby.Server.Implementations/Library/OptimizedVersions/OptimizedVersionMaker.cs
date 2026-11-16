@@ -76,6 +76,11 @@ public sealed class OptimizedVersionMaker : IOptimizedVersionMaker, IDisposable
                 return false;
             }
 
+            if (!_store.HasRoomFor(new FileInfo(item.Path).Length))
+            {
+                throw new IOException("Not enough free disk space for an optimized version of " + item.Path);
+            }
+
             await MakeVersionAsync(item, plan, cancellationToken).ConfigureAwait(false);
             return true;
         }

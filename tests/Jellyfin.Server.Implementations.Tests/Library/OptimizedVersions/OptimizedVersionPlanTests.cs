@@ -122,6 +122,35 @@ public class OptimizedVersionPlanTests
     }
 
     [Fact]
+    public void Create_PortraitVideoWithin1080p_IsNotShrunk()
+    {
+        var plan = OptimizedVersionPlan.Create("mp4", Video("h264", 1080, 1920), Audio("aac", 2));
+
+        Assert.False(plan.IsNeeded);
+    }
+
+    [Fact]
+    public void BuildArguments_PortraitLargerThan1080p_ScalesToAnUprightFrame()
+    {
+        var video = Video("h264", 2160, 3840);
+        var plan = OptimizedVersionPlan.Create("mp4", video, null);
+
+        var args = plan.BuildArguments("in.mp4", "out", video, null);
+
+        AssertSequence(args, "-vf", "scale=w=1080:h=1920:force_original_aspect_ratio=decrease:force_divisible_by=2");
+    }
+
+    [Fact]
+    public void BuildArguments_Converting_LeavesTheLevelToTheEncoder()
+    {
+        // A fixed level would be wrong for some frame rates; the encoder picks one that fits.
+        var video = Video("hevc");
+        var plan = OptimizedVersionPlan.Create("matroska", video, null);
+
+        Assert.DoesNotContain("-level:v", plan.BuildArguments("in.mkv", "out", video, null));
+    }
+
+    [Fact]
     public void BuildArguments_Interlaced_Deinterlaces()
     {
         var video = Video("mpeg2video", 720, 480);

@@ -17,6 +17,9 @@ public class OptimizedVersionStore
     private const string MediaExtension = ".mp4";
     private const string InfoExtension = ".json";
 
+    // Copies share a disk with the server's database, which must never run out of room.
+    private const long FreeSpaceToKeep = 2L * 1024 * 1024 * 1024;
+
     private readonly string _root;
 
     /// <summary>
@@ -106,6 +109,19 @@ public class OptimizedVersionStore
         var mediaPath = GetMediaPath(itemId);
         Directory.CreateDirectory(Path.GetDirectoryName(mediaPath)!);
         return mediaPath + ".partial";
+    }
+
+    /// <summary>
+    /// Gets a value indicating whether the store's disk has room for a copy of a file.
+    /// A copy is never larger than about the size of its source.
+    /// </summary>
+    /// <param name="sourceSize">The size of the source file.</param>
+    /// <returns><c>true</c> if writing the copy would still leave free space to spare.</returns>
+    public bool HasRoomFor(long sourceSize)
+    {
+        Directory.CreateDirectory(_root);
+        var free = new DriveInfo(_root).AvailableFreeSpace;
+        return free - sourceSize >= FreeSpaceToKeep;
     }
 
     /// <summary>

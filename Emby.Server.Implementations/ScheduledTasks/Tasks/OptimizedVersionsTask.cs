@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Emby.Server.Implementations.Library.OptimizedVersions;
@@ -73,6 +74,14 @@ public class OptimizedVersionsTask : IScheduledTask
             progress.Report(100d * i / items.Count);
 
             var item = items[i];
+            if (OptimizedVersionMaker.Plan(item) is { IsNeeded: true }
+                && _store.Find(item.Id, item.Path) is null
+                && !_store.HasRoomFor(new FileInfo(item.Path).Length))
+            {
+                _logger.LogWarning("Stopping: not enough free disk space for more optimized versions.");
+                break;
+            }
+
             try
             {
                 if (await _maker.MakeAsync(item, cancellationToken).ConfigureAwait(false))

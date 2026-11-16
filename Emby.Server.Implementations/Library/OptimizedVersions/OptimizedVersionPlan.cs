@@ -13,8 +13,9 @@ namespace Emby.Server.Implementations.Library.OptimizedVersions;
 /// </summary>
 public sealed class OptimizedVersionPlan
 {
-    private const int MaxWidth = 1920;
-    private const int MaxHeight = 1080;
+    // The frame must fit a 1080p screen held either way up, so a portrait video is not shrunk.
+    private const int MaxLongSide = 1920;
+    private const int MaxShortSide = 1080;
 
     private static readonly string[] _compatibleContainers = ["mp4", "m4v", "mov"];
 
@@ -68,8 +69,7 @@ public sealed class OptimizedVersionPlan
         var copyVideo = string.Equals(video.Codec, "h264", StringComparison.OrdinalIgnoreCase)
             && (video.BitDepth ?? 8) <= 8
             && !video.IsInterlaced
-            && (video.Width ?? 0) <= MaxWidth
-            && (video.Height ?? 0) <= MaxHeight;
+            && FitsTheFrame(video);
 
         var copyAudio = audio is null
             || (string.Equals(audio.Codec, "aac", StringComparison.OrdinalIgnoreCase) && (audio.Channels ?? 2) <= 2);
@@ -120,11 +120,12 @@ public sealed class OptimizedVersionPlan
                 filters.Add("yadif");
             }
 
-            if ((video.Width ?? 0) > MaxWidth || (video.Height ?? 0) > MaxHeight)
+            if (!FitsTheFrame(video))
             {
+                var portrait = (video.Height ?? 0) > (video.Width ?? 0);
                 filters.Add(string.Create(
                     CultureInfo.InvariantCulture,
-                    $"scale=w={MaxWidth}:h={MaxHeight}:force_original_aspect_ratio=decrease:force_divisible_by=2"));
+                    $"scale=w={(portrait ? MaxShortSide : MaxLongSide)}:h={(portrait ? MaxLongSide : MaxShortSide)}:force_original_aspect_ratio=decrease:force_divisible_by=2"));
             }
 
             if (filters.Count > 0)
@@ -132,7 +133,7 @@ public sealed class OptimizedVersionPlan
                 args.AddRange(["-vf", string.Join(',', filters)]);
             }
 
-            args.AddRange(["-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p", "-profile:v", "high", "-level:v", "4.1"]);
+            args.AddRange(["-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p", "-profile:v", "high"]);
         }
 
         if (audio is not null)
@@ -149,6 +150,13 @@ public sealed class OptimizedVersionPlan
 
         args.AddRange(["-movflags", "+faststart", "-f", "mp4", outputPath]);
         return args;
+    }
+
+    private static bool FitsTheFrame(MediaStream video)
+    {
+        var width = video.Width ?? 0;
+        var height = video.Height ?? 0;
+        return Math.Max(width, height) <= MaxLongSide && Math.Min(width, height) <= MaxShortSide;
     }
 
     private static bool IsCompatibleContainer(string? container)

@@ -109,6 +109,13 @@ public sealed class OptimizedVersionStoreTests : IDisposable
     }
 
     [Fact]
+    public void HasRoomFor_LeavesSpaceForTheRestOfTheServer()
+    {
+        Assert.True(_store.HasRoomFor(0) || new DriveInfo(_root).AvailableFreeSpace < 2L * 1024 * 1024 * 1024);
+        Assert.False(_store.HasRoomFor(new DriveInfo(_root).AvailableFreeSpace));
+    }
+
+    [Fact]
     public void GetMediaSourceId_IsStableAndNotTheItemId()
     {
         var id = OptimizedVersion.GetMediaSourceId(_itemId);
