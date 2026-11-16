@@ -162,7 +162,9 @@ public class TwinPublisher
         catalog[position++] = (byte)']';
         state.CatalogHash = await PutIfChangedAsync(store, CatalogKey, catalog.AsMemory(0, position), state.CatalogHash, cancellationToken).ConfigureAwait(false);
 
-        state.UsersHash = await PutIfChangedAsync(store, TwinUsers.Key, TwinUsers.Serialize(_userManager), state.UsersHash, cancellationToken).ConfigureAwait(false);
+        // Sent every time, changed or not: the play state sync writes this file too, so what was
+        // sent last from here says nothing about what is there now, and a stale list lets a removed user in.
+        await store.PutBytesAsync(TwinUsers.Key, TwinUsers.Serialize(_userManager), "application/json", cancellationToken).ConfigureAwait(false);
         SaveState(state);
 
         progress.Report(100);

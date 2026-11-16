@@ -88,8 +88,8 @@ What is kept, in `state/invitations.json`: a hash of each link's code, never the
 for each person waiting a hash of their password in the media server's own format, never
 the password. The code travels after the `#` in the link, so it is not in request logs.
 
-Anyone removed or disabled at home stops being able to use the twin within a minute of the
-next publish, tokens included.
+Anyone removed or disabled at home stops being able to use the twin, tokens included, once
+the home server's next sync has sent the new list of users: about 15 minutes at most.
 
 | Call | Who | Does |
 |---|---|---|

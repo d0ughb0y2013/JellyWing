@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Emby.Server.Implementations.CloudTwin;
 using MediaBrowser.Common.Net;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Configuration;
 
@@ -17,6 +18,7 @@ public class CloudTwinPlayStateTask : IScheduledTask
 {
     private readonly TwinPlayStateSync _sync;
     private readonly TwinInvitationSync _invitations;
+    private readonly IUserManager _userManager;
     private readonly IConfiguration _configuration;
     private readonly IHttpClientFactory _httpClientFactory;
 
@@ -25,10 +27,17 @@ public class CloudTwinPlayStateTask : IScheduledTask
     /// </summary>
     /// <param name="sync">The play state sync.</param>
     /// <param name="invitations">The invitation sync.</param>
+    /// <param name="userManager">The user manager.</param>
     /// <param name="configuration">The startup configuration.</param>
     /// <param name="httpClientFactory">The HTTP client factory.</param>
-    public CloudTwinPlayStateTask(TwinPlayStateSync sync, TwinInvitationSync invitations, IConfiguration configuration, IHttpClientFactory httpClientFactory)
+    public CloudTwinPlayStateTask(
+        TwinPlayStateSync sync,
+        TwinInvitationSync invitations,
+        IUserManager userManager,
+        IConfiguration configuration,
+        IHttpClientFactory httpClientFactory)
     {
+        _userManager = userManager;
         _sync = sync;
         _invitations = invitations;
         _configuration = configuration;
@@ -39,7 +48,7 @@ public class CloudTwinPlayStateTask : IScheduledTask
     public string Name => "Sync play state with cloud twin";
 
     /// <inheritdoc />
-    public string Description => "Brings home what was watched on the cloud twin and sends it what was watched at home, along with favorites and watchlists, and makes accounts for people invited on the twin. Does nothing until the cloud twin is set up.";
+    public string Description => "Brings home what was watched on the cloud twin and sends it what was watched at home, along with favorites and watchlists, makes accounts for people invited on the twin, and refreshes who may sign in there. Does nothing until the cloud twin is set up.";
 
     /// <inheritdoc />
     public string Category => "Library";
@@ -63,6 +72,10 @@ public class CloudTwinPlayStateTask : IScheduledTask
         {
             await _invitations.SyncAsync(store, options.Libraries, cancellationToken).ConfigureAwait(false);
         }
+
+        // Who may sign in is refreshed on every run, so someone removed, disabled or given a new
+        // password at home is treated the same on the twin within one interval.
+        await store.PutBytesAsync(TwinUsers.Key, TwinUsers.Serialize(_userManager), "application/json", cancellationToken).ConfigureAwait(false);
 
         if (options.SyncPlayState)
         {

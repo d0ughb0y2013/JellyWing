@@ -188,6 +188,25 @@ public sealed class TwinPublisherTests : IDisposable
     }
 
     [Fact]
+    public async Task Publish_UserListChangedByAnotherWriter_IsPutRightAgain()
+    {
+        AddMovie("Plays Anywhere", "movie.mp4", playsAsIs: true);
+        await PublishAsync();
+
+        // The play state sync writes this file as well. Here it added someone who has since been removed at home.
+        await File.WriteAllTextAsync(
+            StorePath("auth/users.json"),
+            "[{\"Name\":\"alice\"},{\"Name\":\"removed\"}]",
+            TestContext.Current.CancellationToken);
+
+        await PublishAsync();
+
+        var users = await File.ReadAllTextAsync(StorePath("auth/users.json"), TestContext.Current.CancellationToken);
+        Assert.Contains("\"Name\":\"alice\"", users, StringComparison.Ordinal);
+        Assert.DoesNotContain("removed", users, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Publish_LibraryNotNamed_IsLeftAlone()
     {
         AddMovie("Plays Anywhere", "movie.mp4", playsAsIs: true);

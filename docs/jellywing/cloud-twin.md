@@ -116,8 +116,9 @@ the home server makes the matching account with the same password. That account 
 an administrator and sees only the published libraries. `twin:invitations=false` stops the
 home server from making accounts this way. `twin/README.md` has the details.
 
-Who is an administrator is published with the user list. Someone removed or disabled at
-home loses the twin as well, once the list has been published again.
+Who is an administrator is published with the user list. That list is sent again on every
+sync, so someone removed, disabled or given a new password at home is treated the same on
+the twin within about 15 minutes.
 
 ## API the twin needs
 
