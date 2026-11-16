@@ -137,6 +137,28 @@ public class OptimizedVersionStore
     }
 
     /// <summary>
+    /// Counts the finished optimized versions in the store and adds up their sizes.
+    /// </summary>
+    /// <returns>The number of copies and their total size in bytes.</returns>
+    public (int Count, long TotalSize) GetTotals()
+    {
+        if (!Directory.Exists(_root))
+        {
+            return (0, 0);
+        }
+
+        var count = 0;
+        long size = 0;
+        foreach (var file in new DirectoryInfo(_root).EnumerateFiles("*" + MediaExtension, SearchOption.AllDirectories))
+        {
+            count++;
+            size += file.Length;
+        }
+
+        return (count, size);
+    }
+
+    /// <summary>
     /// Lists the items that have files in the store.
     /// </summary>
     /// <returns>The item ids.</returns>

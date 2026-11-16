@@ -61,6 +61,9 @@ For taking one video with you:
 2. Choose *Prepare optimized download*. The server makes the copy in the background.
 3. When the same menu shows *Download optimized version*, choose it.
 
+The menu entry shows the size of the copy. An administrator also sees *Remove optimized
+version* there, which deletes the copy and frees its disk space.
+
 A video that already plays everywhere shows only the normal *Download*. Requests are
 handled one at a time. Preparing and downloading need the same permission as downloading
 the original file. The list of waiting requests is kept in memory, so a request that had

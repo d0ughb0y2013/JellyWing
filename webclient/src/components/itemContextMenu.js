@@ -15,7 +15,8 @@ import itemHelper, { canEditPlaylist } from './itemHelper';
 import { playbackManager } from './playback/playbackmanager';
 import toast from './toast/toast';
 import { addToWatchlist, isOnWatchlist, removeFromWatchlist } from '../lib/watchlist';
-import { getOptimizedVersionDownloadUrl, getOptimizedVersionStatus, requestOptimizedVersion } from '../lib/optimizedVersion';
+import { deleteOptimizedVersion, getOptimizedVersionDownloadUrl, getOptimizedVersionStatus, requestOptimizedVersion } from '../lib/optimizedVersion';
+import { getReadableSize } from '../utils/file';
 import * as userSettings from '../scripts/settings/userSettings';
 
 /** Item types that can be put on the watchlist. */
@@ -52,42 +53,54 @@ async function getWatchlistCommand(item) {
 }
 
 /**
- * Builds the optimized download command for a video, or nothing if it needs none
- * or the server has no optimized versions.
+ * Builds the optimized version commands for a video. There are none if it needs no
+ * optimized version or the server has none.
  */
-async function getOptimizedDownloadCommand(item) {
-    if (item.MediaType !== 'Video' || !item.ServerId) return null;
+async function getOptimizedVersionCommands(item, user) {
+    if (item.MediaType !== 'Video' || !item.ServerId) return [];
 
-    let state;
+    let status;
     try {
-        ({ State: state } = await getOptimizedVersionStatus(ServerConnections.getApiClient(item.ServerId), item.Id));
+        status = await getOptimizedVersionStatus(ServerConnections.getApiClient(item.ServerId), item.Id);
     } catch {
-        return null;
+        return [];
     }
 
-    switch (state) {
-        case 'Ready':
-            return {
-                name: globalize.translate('DownloadOptimizedVersion'),
+    switch (status.State) {
+        case 'Ready': {
+            const size = status.Size ? ` (${getReadableSize(status.Size)})` : '';
+            const commands = [{
+                name: globalize.translate('DownloadOptimizedVersion') + size,
                 id: 'downloadoptimized',
                 icon: 'file_download'
-            };
+            }];
+
+            if (user.Policy.IsAdministrator) {
+                commands.push({
+                    name: globalize.translate('RemoveOptimizedVersion'),
+                    id: 'removeoptimized',
+                    icon: 'delete_sweep'
+                });
+            }
+
+            return commands;
+        }
         case 'Queued':
         case 'Running':
-            return {
+            return [{
                 name: globalize.translate('OptimizedVersionPreparing'),
                 id: 'optimizedpending',
                 icon: 'hourglass_top'
-            };
+            }];
         case 'None':
         case 'Failed':
-            return {
+            return [{
                 name: globalize.translate('PrepareOptimizedVersion'),
                 id: 'prepareoptimized',
                 icon: 'downloading'
-            };
+            }];
         default:
-            return null;
+            return [];
     }
 }
 
@@ -279,10 +292,7 @@ export async function getCommands(options) {
                 icon: 'file_download'
             });
 
-            const optimizedCommand = await getOptimizedDownloadCommand(item);
-            if (optimizedCommand) {
-                commands.push(optimizedCommand);
-            }
+            commands.push(...await getOptimizedVersionCommands(item, user));
 
             commands.push({
                 name: globalize.translate('CopyStreamURL'),
@@ -514,6 +524,12 @@ function executeCommand(item, id, options) {
             case 'prepareoptimized':
                 requestOptimizedVersion(apiClient, itemId).then(() => {
                     toast(globalize.translate('MessageOptimizedVersionRequested'));
+                    getResolveFunction(resolve, id)();
+                }, getResolveFunction(resolve, id));
+                break;
+            case 'removeoptimized':
+                deleteOptimizedVersion(apiClient, itemId).then(() => {
+                    toast(globalize.translate('MessageOptimizedVersionRemoved'));
                     getResolveFunction(resolve, id)();
                 }, getResolveFunction(resolve, id));
                 break;

@@ -100,6 +100,37 @@ public class OptimizedVersionsController : BaseJellyfinApiController
         return PhysicalFile(path, "video/mp4", filename, true);
     }
 
+    /// <summary>
+    /// Removes the optimized version of an item.
+    /// </summary>
+    /// <param name="itemId">The item id.</param>
+    /// <response code="204">Optimized version removed.</response>
+    /// <response code="404">Item not found, or it has no optimized version that can be removed now.</response>
+    /// <returns>A <see cref="NoContentResult"/>.</returns>
+    [HttpDelete("Items/{itemId}/OptimizedVersion")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult DeleteOptimizedVersion([FromRoute, Required] Guid itemId)
+    {
+        var item = GetItem(itemId);
+        return item is not null && _optimizedVersionManager.Delete(item) ? NoContent() : NotFound();
+    }
+
+    /// <summary>
+    /// Gets how many optimized versions exist and how much disk space they use.
+    /// </summary>
+    /// <response code="200">Summary returned.</response>
+    /// <returns>The summary.</returns>
+    [HttpGet("OptimizedVersions/Summary")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<OptimizedVersionSummaryDto> GetOptimizedVersionSummary()
+    {
+        var (count, totalSize) = _optimizedVersionManager.GetSummary();
+        return new OptimizedVersionSummaryDto { Count = count, TotalSize = totalSize };
+    }
+
     private static OptimizedVersionStatusDto ToDto((OptimizedVersionState State, long? Size) status)
         => new() { State = status.State, Size = status.Size };
 

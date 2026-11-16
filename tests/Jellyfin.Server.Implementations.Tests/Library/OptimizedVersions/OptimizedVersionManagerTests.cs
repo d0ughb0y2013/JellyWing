@@ -121,6 +121,26 @@ public sealed class OptimizedVersionManagerTests : IDisposable
         await WaitForAsync(OptimizedVersionState.Ready);
     }
 
+    [Fact]
+    public async Task Delete_RemovesAReadyCopyAndTheItemCanBeAskedForAgain()
+    {
+        _manager.Request(_movie);
+        await _maker.Started.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        Assert.False(_manager.Delete(_movie), "a copy being made must not be removed");
+
+        _maker.Finish.SetResult(true);
+        await WaitForAsync(OptimizedVersionState.Ready);
+        Assert.Equal(1, _manager.GetSummary().Count);
+        Assert.True(_manager.GetSummary().TotalSize > 0);
+
+        Assert.True(_manager.Delete(_movie));
+
+        Assert.Equal((OptimizedVersionState.None, null), _manager.GetStatus(_movie));
+        Assert.Equal((0, 0), _manager.GetSummary());
+        Assert.False(_manager.Delete(_movie));
+    }
+
     public void Dispose()
     {
         BaseItem.MediaSourceManager = _previousMediaSourceManager;

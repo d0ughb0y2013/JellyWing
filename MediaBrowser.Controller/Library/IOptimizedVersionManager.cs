@@ -64,4 +64,17 @@ public interface IOptimizedVersionManager
     /// <param name="item">The item.</param>
     /// <returns>The path, or <c>null</c> if the item has no usable optimized version.</returns>
     string? GetPath(BaseItem item);
+
+    /// <summary>
+    /// Removes an item's optimized version.
+    /// </summary>
+    /// <param name="item">The item.</param>
+    /// <returns><c>false</c> if the item had none, or one is being made right now.</returns>
+    bool Delete(BaseItem item);
+
+    /// <summary>
+    /// Gets how many optimized versions exist and how much disk space they use.
+    /// </summary>
+    /// <returns>The number of copies and their total size in bytes.</returns>
+    (int Count, long TotalSize) GetSummary();
 }

@@ -32,6 +32,19 @@ export function requestOptimizedVersion(apiClient, itemId) {
     });
 }
 
+/**
+ * Removes an item's optimized version. Needs an administrator.
+ * @param {import('jellyfin-apiclient').ApiClient} apiClient The api client.
+ * @param {string} itemId The item id.
+ * @returns {Promise<void>}
+ */
+export function deleteOptimizedVersion(apiClient, itemId) {
+    return apiClient.ajax({
+        type: 'DELETE',
+        url: apiClient.getUrl(path(itemId))
+    });
+}
+
 export function getOptimizedVersionDownloadUrl(apiClient, itemId) {
     return apiClient.getUrl(`${path(itemId)}/Download`, { ApiKey: apiClient.accessToken() });
 }

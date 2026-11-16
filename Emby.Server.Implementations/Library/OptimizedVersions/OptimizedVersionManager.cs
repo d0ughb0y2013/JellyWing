@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.IO;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -97,6 +98,25 @@ public class OptimizedVersionManager : IOptimizedVersionManager
             ? _store.GetMediaPath(item.Id)
             : null;
     }
+
+    /// <inheritdoc />
+    public bool Delete(BaseItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        // The file being written belongs to the worker until it is done.
+        if (_states.TryGetValue(item.Id, out var state) && state == OptimizedVersionState.Running)
+        {
+            return false;
+        }
+
+        var existed = File.Exists(_store.GetMediaPath(item.Id));
+        _store.Delete(item.Id);
+        return existed;
+    }
+
+    /// <inheritdoc />
+    public (int Count, long TotalSize) GetSummary() => _store.GetTotals();
 
     private void EnsureWorker()
     {

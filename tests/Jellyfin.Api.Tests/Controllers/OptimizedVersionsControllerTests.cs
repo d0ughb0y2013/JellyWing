@@ -48,6 +48,27 @@ public class OptimizedVersionsControllerTests
         Assert.IsType<NotFoundResult>(_subject.GetOptimizedVersion(Guid.NewGuid()).Result);
     }
 
+    [Theory]
+    [InlineData(true, typeof(NoContentResult))]
+    [InlineData(false, typeof(NotFoundResult))]
+    public void DeleteOptimizedVersion_ReportsWhetherACopyWasRemoved(bool removed, Type expected)
+    {
+        _manager.Setup(m => m.Delete(_movie)).Returns(removed);
+
+        Assert.IsType(expected, _subject.DeleteOptimizedVersion(_movie.Id));
+    }
+
+    [Fact]
+    public void GetOptimizedVersionSummary_ReportsCountAndSize()
+    {
+        _manager.Setup(m => m.GetSummary()).Returns((3, 9000));
+
+        var dto = Assert.IsType<OptimizedVersionSummaryDto>(_subject.GetOptimizedVersionSummary().Value);
+
+        Assert.Equal(3, dto.Count);
+        Assert.Equal(9000, dto.TotalSize);
+    }
+
     [Fact]
     public void DownloadOptimizedVersion_NoneReady_IsNotFound()
     {

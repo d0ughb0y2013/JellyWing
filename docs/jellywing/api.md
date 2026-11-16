@@ -27,6 +27,8 @@ access are returned, and `TotalRecordCount` counts those.
 | `GET` | `/Items/{itemId}/OptimizedVersion` | Where the item stands |
 | `POST` | `/Items/{itemId}/OptimizedVersion` | Asks for a copy to be made in the background; returns where the item stands |
 | `GET` | `/Items/{itemId}/OptimizedVersion/Download` | The copy, as a file download |
+| `DELETE` | `/Items/{itemId}/OptimizedVersion` | Removes the copy; `204`. Administrators only |
+| `GET` | `/OptimizedVersions/Summary` | `{ "Count": 18, "TotalSize": 123456789 }`: how many copies exist and their total size in bytes. Administrators only |
 
 The status is `{ "State": "...", "Size": 12345 }`. `Size` is present when a copy exists.
 
@@ -41,6 +43,8 @@ The status is `{ "State": "...", "Size": 12345 }`. `Size` is present when a copy
 
 `POST` and the download need the download permission. The download returns `404` until
 the state is `Ready`. The file is named after the original, with an `.mp4` extension.
+
+`DELETE` returns `404` when the item has no copy, or one is being made at that moment.
 
 ## Playback
 
