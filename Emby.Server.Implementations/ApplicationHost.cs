@@ -26,6 +26,7 @@ using Emby.Server.Implementations.Dto;
 using Emby.Server.Implementations.HttpServer.Security;
 using Emby.Server.Implementations.IO;
 using Emby.Server.Implementations.Library;
+using Emby.Server.Implementations.Library.OptimizedVersions;
 using Emby.Server.Implementations.Library.Search;
 using Emby.Server.Implementations.Library.SimilarItems;
 using Emby.Server.Implementations.Localization;
@@ -541,6 +542,7 @@ namespace Emby.Server.Implementations
 
             serviceCollection.AddSingleton<IInstallationManager, InstallationManager>();
             serviceCollection.AddSingleton<IRecommendedPluginInstaller, RecommendedPluginInstaller>();
+            serviceCollection.AddSingleton<OptimizedVersionStore>();
 
             serviceCollection.AddSingleton<IServerApplicationHost>(this);
             serviceCollection.AddSingleton(ApplicationPaths);

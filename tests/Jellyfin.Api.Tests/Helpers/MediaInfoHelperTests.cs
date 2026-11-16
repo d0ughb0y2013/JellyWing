@@ -82,6 +82,77 @@ namespace Jellyfin.Api.Tests.Helpers
         }
 
         [Fact]
+        public void SortMediaSources_OriginalNeedsConverting_OptimizedVersionBecomesDefault()
+        {
+            var itemId = Guid.NewGuid();
+            var original = CreateSource(itemId, bitrate: 8_000_000, supportsDirectPlay: false);
+            var optimized = CreateSource(Guid.Parse(OptimizedVersion.GetMediaSourceId(itemId)), bitrate: 4_000_000);
+            var sibling = CreateSource(Guid.NewGuid(), bitrate: 4_000_000);
+
+            var result = new PlaybackInfoResponse
+            {
+                MediaSources = [original, sibling, optimized]
+            };
+
+            CreateHelper().SortMediaSources(result, maxBitrate: 20_000_000, itemId);
+
+            Assert.Equal(optimized.Id, result.MediaSources[0].Id);
+        }
+
+        [Fact]
+        public void SortMediaSources_SubtitlesSelectedOnOriginal_OriginalStaysDefault()
+        {
+            // The optimized version carries no subtitles, so switching to it would drop them.
+            var itemId = Guid.NewGuid();
+            var original = CreateSource(itemId, bitrate: 8_000_000, supportsDirectPlay: false);
+            original.DefaultSubtitleStreamIndex = 2;
+            var optimized = CreateSource(Guid.Parse(OptimizedVersion.GetMediaSourceId(itemId)), bitrate: 4_000_000);
+
+            var result = new PlaybackInfoResponse
+            {
+                MediaSources = [optimized, original]
+            };
+
+            CreateHelper().SortMediaSources(result, maxBitrate: 20_000_000, itemId);
+
+            Assert.Equal(original.Id, result.MediaSources[0].Id);
+        }
+
+        [Fact]
+        public void SortMediaSources_OriginalPlaysDirectly_StaysAheadOfItsOptimizedVersion()
+        {
+            var itemId = Guid.NewGuid();
+            var original = CreateSource(itemId, bitrate: 8_000_000);
+            var optimized = CreateSource(Guid.Parse(OptimizedVersion.GetMediaSourceId(itemId)), bitrate: 4_000_000);
+
+            var result = new PlaybackInfoResponse
+            {
+                MediaSources = [optimized, original]
+            };
+
+            CreateHelper().SortMediaSources(result, maxBitrate: 20_000_000, itemId);
+
+            Assert.Equal(original.Id, result.MediaSources[0].Id);
+        }
+
+        [Fact]
+        public void SortMediaSources_OptimizedVersionCannotPlayDirectlyEither_OriginalStaysDefault()
+        {
+            var itemId = Guid.NewGuid();
+            var original = CreateSource(itemId, bitrate: 8_000_000, supportsDirectPlay: false);
+            var optimized = CreateSource(Guid.Parse(OptimizedVersion.GetMediaSourceId(itemId)), bitrate: 4_000_000, supportsDirectPlay: false);
+
+            var result = new PlaybackInfoResponse
+            {
+                MediaSources = [optimized, original]
+            };
+
+            CreateHelper().SortMediaSources(result, maxBitrate: 20_000_000, itemId);
+
+            Assert.Equal(original.Id, result.MediaSources[0].Id);
+        }
+
+        [Fact]
         public void SortMediaSources_NoPreferredItem_OrdersByPlayability()
         {
             var directPlay = CreateSource(Guid.NewGuid(), bitrate: 8_000_000);
@@ -113,6 +184,31 @@ namespace Jellyfin.Api.Tests.Helpers
             CreateHelper().SortMediaSources(result, maxBitrate: 20_000_000, Guid.NewGuid());
 
             Assert.Equal(directPlay.Id, result.MediaSources[0].Id);
+        }
+
+        [Theory]
+        [InlineData(true, 2)]
+        [InlineData(false, 1)]
+        public async Task GetPlaybackInfo_SpecificSourceRequested_IncludesOptimizedVersionOnlyForTheItemsOwnSource(bool requestOwnSource, int expectedCount)
+        {
+            var movie = new Movie { Id = Guid.NewGuid() };
+            var own = CreateSource(movie.Id, bitrate: 8_000_000);
+            var optimized = CreateSource(Guid.Parse(OptimizedVersion.GetMediaSourceId(movie.Id)), bitrate: 4_000_000);
+            var sibling = CreateSource(Guid.NewGuid(), bitrate: 4_000_000);
+
+            var mediaSourceManager = new Mock<IMediaSourceManager>();
+            mediaSourceManager
+                .Setup(x => x.GetPlaybackMediaSources(movie, null, true, true, It.IsAny<CancellationToken>()))
+                .ReturnsAsync([own, sibling, optimized]);
+
+            var helper = CreateHelper(mediaSourceManager: mediaSourceManager.Object);
+            var requested = requestOwnSource ? own : sibling;
+
+            var result = await helper.GetPlaybackInfo(movie, null, Mock.Of<HttpRequest>(), mediaSourceId: requested.Id).ConfigureAwait(true);
+
+            Assert.Equal(expectedCount, result.MediaSources.Count);
+            Assert.Contains(result.MediaSources, s => s.Id == requested.Id);
+            Assert.DoesNotContain(result.MediaSources, s => s.Id == (requestOwnSource ? sibling.Id : optimized.Id));
         }
 
         [Fact]

@@ -152,8 +152,15 @@ public class MediaInfoHelper
             return mediaSourcesList.ToArray();
         }
 
+        // A player that asks for the item's own source by id still gets the item's optimized
+        // version alongside it, so the pre-made copy can be played where the original would be converted.
+        var optimizedId = string.Equals(mediaSourceId, item.Id.ToString("N", CultureInfo.InvariantCulture), StringComparison.OrdinalIgnoreCase)
+            ? OptimizedVersion.GetMediaSourceId(item.Id)
+            : null;
+
         return mediaSourcesList
-            .Where(i => string.Equals(i.Id, mediaSourceId, StringComparison.OrdinalIgnoreCase))
+            .Where(i => string.Equals(i.Id, mediaSourceId, StringComparison.OrdinalIgnoreCase)
+                || (optimizedId is not null && string.Equals(i.Id, optimizedId, StringComparison.OrdinalIgnoreCase)))
             .ToArray();
     }
 
@@ -373,6 +380,23 @@ public class MediaInfoHelper
         var preferredId = preferredItemId.IsEmpty()
             ? null
             : preferredItemId.ToString("N", CultureInfo.InvariantCulture);
+
+        // An optimized version is the same item in a form more players handle, so it takes the
+        // original's place when it plays directly, the original would not, and nothing selected is lost.
+        if (preferredId is not null)
+        {
+            var optimizedId = OptimizedVersion.GetMediaSourceId(preferredItemId);
+            var own = originalList.Find(i => string.Equals(i.Id, preferredId, StringComparison.OrdinalIgnoreCase));
+            var optimized = originalList.Find(i => string.Equals(i.Id, optimizedId, StringComparison.OrdinalIgnoreCase));
+            if (own is not null
+                && !own.SupportsDirectPlay
+                && optimized is not null
+                && optimized.SupportsDirectPlay
+                && OptimizedVersion.CoversSelection(own))
+            {
+                preferredId = optimizedId;
+            }
+        }
 
         result.MediaSources = result.MediaSources
             .OrderByDescending(i => preferredId is not null && string.Equals(i.Id, preferredId, StringComparison.OrdinalIgnoreCase))

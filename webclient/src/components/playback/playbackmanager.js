@@ -522,6 +522,14 @@ function getOptimalMediaSource(apiClient, item, versions) {
         // Prefer the played item's own source, transcoding it if needed, over another version
         const ownSource = versions.find(v => v.Id === item.Id);
 
+        // The server lists another version ahead of the item's own only when it is an optimized
+        // version of this same item, made so that the original need not be converted.
+        const playsAsIs = v => v.enableDirectPlay || v.SupportsDirectPlay || v.SupportsDirectStream;
+        const first = versions[0];
+        if (ownSource && first !== ownSource && playsAsIs(first) && !playsAsIs(ownSource)) {
+            return first;
+        }
+
         if (ownSource && (ownSource.enableDirectPlay || ownSource.SupportsDirectStream || ownSource.SupportsTranscoding)) {
             return ownSource;
         }
