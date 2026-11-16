@@ -1,8 +1,8 @@
 # Cloud twin: design
 
 Status: publishing is built, and so is a twin API that signs users in, lets them browse,
-and plays by handing out links to the files. Play state sync and invitations are not built,
-and the API has not been deployed anywhere yet; it runs locally. See
+and plays by handing out links to the files. It can be deployed to AWS with the templates
+in `deploy/cloud-twin/`. Play state sync and invitations are not built. See
 [Build order](#build-order) for where things stand.
 
 ## Goal
@@ -129,6 +129,31 @@ There is no idle compute cost. The two that matter:
 Before any build, both should be priced for the actual library size and expected viewing
 with the provider's current price list.
 
+## Deploying the API on AWS
+
+`deploy/cloud-twin/twin-api.yaml` runs the twin as a Lambda function with a public function
+URL. From the repository root, with the bucket from `s3-store.yaml`:
+
+```bash
+aws cloudformation package --template-file deploy/cloud-twin/twin-api.yaml --s3-bucket <bucket> --s3-prefix deploy-artifacts --output-template-file twin-api.packaged.yaml
+```
+
+```bash
+aws cloudformation deploy --stack-name jellywing-twin-api --template-file twin-api.packaged.yaml --capabilities CAPABILITY_IAM --parameter-overrides BucketName=<bucket>
+```
+
+The stack's `Url` output is the server address to give apps. The function may only read
+the bucket. The secret that signs access tokens is generated in Secrets Manager.
+
+Things to know about this deployment:
+
+- The address is public. Sign-in is the only protection, and there is no limit yet on how
+  often a sign-in may be attempted.
+- Links to files are signed with the function's temporary credentials, so a link can stop
+  working before its six hours are up, when those credentials rotate.
+- The function reads the catalog and the user list at most once a minute, so a publish
+  can take a minute to show.
+
 ## Licensing
 
 The sync agent is part of, or a plugin to, the server, so it is under the server's
@@ -139,9 +164,9 @@ carry its own license.
 
 1. **Done.** Publish chosen libraries to storage and write catalog records. See
    [Publishing today](#publishing-today).
-2. **Done, running locally.** Twin API for sign-in, browsing and artwork, in `twin/`. It
-   has been checked with scripted requests; the web client has not been pointed at it yet
-   and will need more of the API than is there.
+2. **Done.** Twin API for sign-in, browsing and artwork, in `twin/`, deployable as a
+   Lambda function. It has been checked with scripted requests; the web client has not
+   been pointed at it yet and will need more of the API than is there.
 3. **Partly done.** Playback through signed links works. Progress reports are accepted
    and dropped.
 4. Play state and watchlist sync in both directions.

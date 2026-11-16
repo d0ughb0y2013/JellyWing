@@ -1,0 +1,92 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: JellyWing cloud twin API as a Lambda function with a public function URL.
+
+Parameters:
+  BucketName:
+    Type: String
+    Description: The bucket the JellyWing server publishes to.
+  ServerName:
+    Type: String
+    Default: JellyWing
+    Description: The server name apps show.
+
+Resources:
+  TokenSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Signs the cloud twin's access tokens. Replacing it signs everyone out.
+      GenerateSecretString:
+        PasswordLength: 48
+        ExcludePunctuation: true
+
+  FunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: ReadPublishedLibrary
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${BucketName}/*'
+              # Lets a missing file read as "not found" instead of "forbidden".
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${BucketName}'
+
+  Function:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Lets apps sign in, browse and play a published JellyWing library.
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: lambda.handler
+      Code: ../../twin/src
+      Role: !GetAtt FunctionRole.Arn
+      MemorySize: 512
+      Timeout: 15
+      Environment:
+        Variables:
+          TWIN_S3_BUCKET: !Ref BucketName
+          TWIN_NAME: !Ref ServerName
+          TWIN_TOKEN_SECRET: !Sub '{{resolve:secretsmanager:${TokenSecret}}}'
+
+  FunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt Function.Arn
+      AuthType: NONE
+
+  # A public function URL needs both of these; the API does its own sign-in.
+  PublicUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Function
+      Action: lambda:InvokeFunctionUrl
+      Principal: '*'
+      FunctionUrlAuthType: NONE
+
+  PublicInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Function
+      Action: lambda:InvokeFunction
+      Principal: '*'
+      InvokedViaFunctionUrl: true
+
+Outputs:
+  Url:
+    Description: The address apps use as the server address.
+    Value: !GetAtt FunctionUrl.FunctionUrl
+  FunctionName:
+    Value: !Ref Function
