@@ -310,17 +310,43 @@ public class ItemPersistenceService : IItemPersistenceService
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Whether the walk up the parent chain stops at a parent id that no item could be loaded for.
+    /// </summary>
+    private static bool HasUnresolvedParent(BaseItemDto item)
+    {
+        var current = item;
+        while (!current.ParentId.IsEmpty())
+        {
+            var parent = current.GetParent();
+            if (parent is null)
+            {
+                return true;
+            }
+
+            current = parent;
+        }
+
+        return false;
+    }
+
     private void UpdateOrInsertItems(IReadOnlyList<BaseItemDto> items, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(items);
         cancellationToken.ThrowIfCancellationRequested();
 
         var tuples = new List<(BaseItemDto Item, List<Guid>? AncestorIds, BaseItemDto TopParent, IEnumerable<string> UserDataKey, List<string> InheritedTags)>();
+        var itemsWithUnresolvedParent = new HashSet<Guid>();
         foreach (var item in items.GroupBy(e => e.Id).Select(e => e.Last()).Where(e => e.Id != BaseItemRepository.PlaceholderId))
         {
             var ancestorIds = item.SupportsAncestors ?
                 item.GetAncestorIds().Distinct().ToList() :
                 null;
+
+            if (ancestorIds is not null && HasUnresolvedParent(item))
+            {
+                itemsWithUnresolvedParent.Add(item.Id);
+            }
 
             var topParent = item.GetTopParent();
 
@@ -472,7 +498,12 @@ public class ItemPersistenceService : IItemPersistenceService
                     }
                 }
 
-                context.AncestorIds.RemoveRange(existingAncestorIds);
+                // A parent that failed to load cuts the chain short, which says nothing about the
+                // ancestors above it: keep the stored rows rather than delete on a partial answer.
+                if (!itemsWithUnresolvedParent.Contains(item.Item.Id))
+                {
+                    context.AncestorIds.RemoveRange(existingAncestorIds);
+                }
             }
         }
 
