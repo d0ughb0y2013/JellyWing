@@ -116,5 +116,11 @@ public sealed class TwinWebClientPublisherTests : IDisposable
             Deletes.Add(key);
             return Task.CompletedTask;
         }
+
+        public Task<(byte[] Content, string Tag)?> GetAsync(string key, CancellationToken cancellationToken)
+            => Task.FromResult<(byte[] Content, string Tag)?>(null);
+
+        public Task<bool> PutIfUnchangedAsync(string key, ReadOnlyMemory<byte> content, string contentType, string? tag, CancellationToken cancellationToken)
+            => Task.FromResult(true);
     }
 }

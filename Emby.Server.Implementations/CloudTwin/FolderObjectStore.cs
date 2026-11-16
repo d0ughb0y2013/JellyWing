@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -46,6 +47,33 @@ public class FolderObjectStore : IObjectStore
     {
         File.Delete(Resolve(key));
         return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public async Task<(byte[] Content, string Tag)?> GetAsync(string key, CancellationToken cancellationToken)
+    {
+        var path = Resolve(key);
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        var content = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
+        return (content, Convert.ToHexStringLower(SHA256.HashData(content)));
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> PutIfUnchangedAsync(string key, ReadOnlyMemory<byte> content, string contentType, string? tag, CancellationToken cancellationToken)
+    {
+        // Good enough for a local stand-in: the check and the write are not one step.
+        var current = await GetAsync(key, cancellationToken).ConfigureAwait(false);
+        if (!string.Equals(current?.Tag, tag, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        await PutBytesAsync(key, content, contentType, cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     private string Resolve(string key)

@@ -35,7 +35,27 @@ const webFiles = {
 };
 const bytesRead = [];
 
+// Text files with versions, the way a real store keeps them.
+const texts = new Map();
+const writes = [];
+let failNextWrite = false;
+
 const store = {
+    getText: async key => (texts.has(key) ? { ...texts.get(key) } : null),
+    putText: async (key, text, tag) => {
+        if (failNextWrite) {
+            // Someone else wrote first.
+            failNextWrite = false;
+            const other = JSON.parse(texts.get(key)?.text || '{"Items":{},"Watchlist":{}}');
+            other.Watchlist[SERIES] = { On: true, Changed: 1 };
+            texts.set(key, { text: JSON.stringify(other), tag: 'other-' + writes.length });
+        }
+
+        if ((texts.get(key)?.tag ?? null) !== (tag ?? null)) return { written: false };
+        writes.push(key);
+        texts.set(key, { text, tag: 'v' + writes.length });
+        return { written: true, tag: 'v' + writes.length };
+    },
     getJson: async key => files[key] ?? null,
     getBytes: async key => {
         bytesRead.push(key);
@@ -45,6 +65,8 @@ const store = {
 };
 
 function newTwin(now) {
+    texts.clear();
+    writes.length = 0;
     return createTwin({ store, tokenSecret: 'a-test-secret-of-enough-length', now });
 }
 
@@ -220,7 +242,6 @@ test('the web client is served from the store without signing in', async () => {
     assert.match((await raw('/web/themes/dark/theme.css')).headers.get('content-type'), /^text\/css/);
     assert.equal((await raw('/web/themes/dark/theme.css')).headers.get('cache-control'), 'no-cache');
     assert.match((await raw('/web/themes/dark/theme.css?0123456789abcdef0123')).headers.get('cache-control'), /immutable/);
-    assert.equal((await raw('/favicon.ico')).headers.get('location'), '/web/favicon.ico');
     assert.equal((await raw('/web/missing.js')).status, 404);
 });
 
@@ -263,7 +284,7 @@ test('things the twin does not hold are answered as none, in the shape an app ex
     const twin = newTwin();
     const token = await signIn(twin);
 
-    for (const path of ['/UserItems/Resume', '/Shows/NextUp', `/Items/${MOVIE}/Similar`, '/Genres', '/LiveTv/Programs', `/Items/${MOVIE}/Collections`, '/UserWatchlistItems']) {
+    for (const path of [`/Items/${MOVIE}/Similar`, '/Genres', '/LiveTv/Programs', `/Items/${MOVIE}/Collections`]) {
         const answer = await call(twin, path, { token });
         assert.equal(answer.status, 200, path);
         assert.deepEqual(answer.body.Items, [], path);
@@ -273,10 +294,8 @@ test('things the twin does not hold are answered as none, in the shape an app ex
         assert.deepEqual((await call(twin, path, { token })).body, [], path);
     }
 
-    assert.deepEqual((await call(twin, '/Items?Filters=IsFavorite&Recursive=true', { token })).body.Items, []);
     assert.equal((await call(twin, '/DisplayPreferences/usersettings?client=emby', { token })).body.Id, 'usersettings');
     assert.equal((await call(twin, '/DisplayPreferences/usersettings?client=emby', { token, method: 'POST', body: {} })).status, 204);
-    assert.equal((await call(twin, `/UserFavoriteItems/${MOVIE}`, { token, method: 'POST' })).body.IsFavorite, false);
     assert.equal((await call(twin, `/Items/${MOVIE}/OptimizedVersion`, { token })).body.State, 'NotNeeded');
     assert.equal((await call(twin, '/Users', { token })).body[0].Name, 'Alice');
     assert.equal((await call(twin, '/System/Info', { token })).body.ProductName, 'Jellyfin Server');
@@ -299,4 +318,136 @@ test('a connection test gets the size it asks for, up to a limit', async () => {
 
     assert.equal(await sized('/Playback/BitrateTest?Size=5000'), 5000);
     assert.equal(await sized('/Playback/BitrateTest?Size=900000000'), 1000000);
+});
+
+const MINUTE = 600000000;
+const report = (twin, token, kind, itemId, positionTicks) =>
+    call(twin, '/Sessions/Playing' + kind, { token, method: 'POST', body: { ItemId: itemId, PositionTicks: positionTicks } });
+const names = answer => answer.body.Items.map(i => i.Name);
+
+test('with nothing watched, the lists that depend on it are empty', async () => {
+    const twin = newTwin();
+    const token = await signIn(twin);
+    for (const path of ['/UserItems/Resume', '/Shows/NextUp', '/UserWatchlistItems', '/Items?Filters=IsFavorite&Recursive=true']) {
+        assert.deepEqual((await call(twin, path, { token })).body.Items, [], path);
+    }
+
+    assert.equal((await call(twin, '/UserStats', { token })).body.Episodes, 0);
+});
+
+test('a video stopped part way can be resumed, and one watched to the end is marked watched', async () => {
+    let clock = Date.UTC(2026, 10, 16);
+    const twin = newTwin(() => clock);
+    const token = await signIn(twin);
+    const movie = { ...files['catalog/all.json'].find(r => r.Id === MOVIE) };
+    assert.equal(movie.RunTimeTicks, MINUTE);
+
+    // A one minute film is too short to resume: stopping anywhere past the start counts as watched.
+    await report(twin, token, '', MOVIE, 0);
+    await report(twin, token, '/Stopped', MOVIE, MINUTE / 2);
+    let data = (await call(twin, `/Items/${MOVIE}`, { token })).body.UserData;
+    assert.equal(data.Played, true);
+    assert.equal(data.PlaybackPositionTicks, 0);
+    assert.equal(data.PlayCount, 1);
+
+    assert.equal((await call(twin, `/UserPlayedItems/${MOVIE}`, { token, method: 'DELETE' })).body.Played, false);
+
+    // Barely started: not worth resuming.
+    clock += 60000;
+    await report(twin, token, '/Stopped', MOVIE, MINUTE / 50);
+    data = (await call(twin, `/Items/${MOVIE}`, { token })).body.UserData;
+    assert.equal(data.Played, false);
+    assert.equal(data.PlaybackPositionTicks, 0);
+    assert.deepEqual(names(await call(twin, '/UserItems/Resume', { token })), []);
+});
+
+test('progress is kept while playing, but not every report is written', async () => {
+    let clock = Date.UTC(2026, 10, 16);
+    const twin = newTwin(() => clock);
+    const token = await signIn(twin);
+
+    await report(twin, token, '/Progress', EPISODE_1, 5 * MINUTE);
+    await report(twin, token, '/Progress', EPISODE_1, 6 * MINUTE);
+    assert.equal(writes.length, 1);
+
+    clock += 20000;
+    await report(twin, token, '/Progress', EPISODE_1, 7 * MINUTE);
+    assert.equal(writes.length, 2);
+
+    const resume = await call(twin, '/UserItems/Resume', { token });
+    assert.deepEqual(names(resume), ['First']);
+    assert.equal(resume.body.Items[0].UserData.PlaybackPositionTicks, 7 * MINUTE);
+    assert.deepEqual(names(await call(twin, '/Items?Filters=IsResumable&Recursive=true', { token })), ['First']);
+
+    // The same list is asked for once per kind of media; a video is not something to keep listening to.
+    assert.deepEqual(names(await call(twin, '/UserItems/Resume?MediaTypes=Video', { token })), ['First']);
+    assert.deepEqual(names(await call(twin, '/UserItems/Resume?MediaTypes=Audio', { token })), []);
+    assert.deepEqual(names(await call(twin, '/UserItems/Resume?mediaTypes=Book', { token })), []);
+    assert.deepEqual(names(await call(twin, '/Items?MediaTypes=Audio&Recursive=true', { token })), []);
+});
+
+test('next up is the first unwatched episode after the last watched one', async () => {
+    const twin = newTwin();
+    const token = await signIn(twin);
+    assert.deepEqual(names(await call(twin, '/Shows/NextUp', { token })), []);
+
+    assert.equal((await call(twin, `/UserPlayedItems/${EPISODE_1}`, { token, method: 'POST' })).body.Played, true);
+    assert.deepEqual(names(await call(twin, '/Shows/NextUp', { token })), ['Second']);
+
+    const series = (await call(twin, `/Items/${SERIES}`, { token })).body.UserData;
+    assert.equal(series.UnplayedItemCount, 1);
+    assert.equal(series.Played, false);
+
+    // Marking the season watched marks what is in it, and nothing is up next.
+    assert.equal((await call(twin, `/UserPlayedItems/${SEASON}`, { token, method: 'POST' })).body.Played, true);
+    assert.deepEqual(names(await call(twin, '/Shows/NextUp', { token })), []);
+    assert.equal((await call(twin, `/Items/${SERIES}`, { token })).body.UserData.Played, true);
+    assert.deepEqual(names(await call(twin, `/Items?Filters=IsUnplayed&Recursive=true&IncludeItemTypes=Episode`, { token })), []);
+});
+
+test('favorites and the watchlist are kept per user', async () => {
+    const twin = newTwin();
+    const token = await signIn(twin);
+
+    assert.equal((await call(twin, `/UserFavoriteItems/${SERIES}`, { token, method: 'POST' })).body.IsFavorite, true);
+    assert.deepEqual(names(await call(twin, '/Items?Filters=IsFavorite&Recursive=true', { token })), ['A Show']);
+    assert.equal((await call(twin, `/UserFavoriteItems/${SERIES}`, { token, method: 'DELETE' })).body.IsFavorite, false);
+
+    assert.equal((await call(twin, `/UserWatchlistItems/${MOVIE}`, { token, method: 'POST' })).status, 204);
+    assert.equal((await call(twin, `/UserWatchlistItems/${SERIES}`, { token, method: 'POST' })).status, 204);
+    assert.deepEqual(names(await call(twin, '/UserWatchlistItems', { token })).sort(), ['A Film', 'A Show']);
+    assert.equal((await call(twin, `/UserWatchlistItems/${MOVIE}`, { token, method: 'DELETE' })).status, 204);
+    assert.deepEqual(names(await call(twin, '/UserWatchlistItems', { token })), ['A Show']);
+    assert.equal((await call(twin, '/UserWatchlistItems/not-an-item', { token, method: 'POST' })).status, 404);
+
+    assert.deepEqual([...texts.keys()], ['state/cccccccc000000000000000000000001.json']);
+});
+
+test('a change made elsewhere at the same moment is not lost', async () => {
+    const twin = newTwin();
+    const token = await signIn(twin);
+    await call(twin, `/UserFavoriteItems/${MOVIE}`, { token, method: 'POST' });
+
+    failNextWrite = true;
+    assert.equal((await call(twin, `/UserPlayedItems/${MOVIE}`, { token, method: 'POST' })).body.Played, true);
+
+    const saved = JSON.parse(texts.get('state/cccccccc000000000000000000000001.json').text);
+    assert.equal(saved.Items[MOVIE].Played, true);
+    assert.equal(saved.Items[MOVIE].IsFavorite, true);
+    assert.equal(saved.Watchlist[SERIES].On, true);
+});
+
+test('stats count what was watched in the year', async () => {
+    const twin = newTwin(() => Date.UTC(2026, 4, 3));
+    const token = await signIn(twin);
+    await call(twin, `/UserPlayedItems/${MOVIE}`, { token, method: 'POST' });
+    await call(twin, `/UserPlayedItems/${SERIES}`, { token, method: 'POST' });
+
+    const stats = (await call(twin, '/UserStats', { token })).body;
+    assert.equal(stats.Year, 2026);
+    assert.equal(stats.Movies, 1);
+    assert.equal(stats.Episodes, 2);
+    assert.equal(stats.BusiestMonth, 5);
+    assert.equal(stats.WatchTimeTicks, MINUTE);
+    assert.deepEqual(stats.TopSeries.map(s => [s.Name, s.Count]), [['A Show', 2]]);
 });

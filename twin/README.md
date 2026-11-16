@@ -32,9 +32,19 @@ opening the twin's address in a browser gives the same client as at home: sign i
 search and play. The twin serves those files from `web/` in the store without a sign-in,
 since they are the same public program for everyone.
 
-What does not work there yet, because the twin does not hold the data: resume and next up,
-watched marks, favorites, the watchlist, stats, and live updates. They show as empty, and
-marking something watched or a favorite is accepted and not stored.
+Watching on the twin is remembered: where a video stopped, what was watched, favorites and
+the watchlist, with resume, next up and stats worked out from them. The home server brings
+those changes home and sends its own, every 15 minutes. Live updates are the one thing
+missing: a change made on another device shows after a reload.
+
+## Play state
+
+Each user has one file in the store, `state/<user id>.json`. The twin and the home server
+both change it, so a write names the version it started from and is retried if the file
+changed in between. That needs a store that honors `If-Match` and `If-None-Match` on
+writes, which S3 and the common S3-compatible stores do, and credentials that may write
+under `state/`. With a store that cannot be written, browsing and playing still work and
+nothing is remembered.
 
 ## Test
 
@@ -52,11 +62,13 @@ npm test
 | Browse | `GET /UserViews`, `GET /Items`, `GET /Items/{id}`, `GET /Items/Latest`, `GET /Items/{id}/Ancestors`, `GET /Shows/{id}/Seasons`, `GET /Shows/{id}/Episodes` |
 | Pictures | `GET /Items/{id}/Images/{type}`, which redirects to a short-lived link |
 | Play | `POST /Items/{id}/PlaybackInfo`, `GET /Videos/{id}/stream`, which redirects to a short-lived link to the file |
-| Progress | `POST /Sessions/Playing`, `/Progress`, `/Stopped` are accepted and not stored yet |
-| Answered as "none" | Resume, next up, similar, genres, people, favorites, watchlist, stats, display preferences, live TV, group watch |
+| Progress | `POST /Sessions/Playing`, `/Progress`, `/Stopped` |
+| Watched state | `POST` and `DELETE /UserPlayedItems/{id}`, `/UserFavoriteItems/{id}`, `/UserWatchlistItems/{id}`; `GET /UserItems/Resume`, `/Shows/NextUp`, `/UserWatchlistItems`, `/UserStats` |
+| Answered as "none" | Similar, genres, people, display preferences, live TV, group watch |
 
 Everything else answers 404. `/Items` understands `ParentId`, `IncludeItemTypes`,
-`Recursive`, `Ids`, `SearchTerm`, `SortBy`, `SortOrder`, `StartIndex` and `Limit`.
+`Recursive`, `Ids`, `SearchTerm`, `Filters` (favorite, played, unplayed, resumable), `SortBy`,
+`SortOrder`, `StartIndex` and `Limit`.
 
 ## How sign-in works
 

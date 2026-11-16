@@ -39,6 +39,10 @@ Resources:
               - Effect: Allow
                 Action: s3:GetObject
                 Resource: !Sub 'arn:${AWS::Partition}:s3:::${BucketName}/*'
+              # Play state is the one thing the twin writes.
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${BucketName}/state/*'
               # Lets a missing file read as "not found" instead of "forbidden".
               - Effect: Allow
                 Action: s3:ListBucket

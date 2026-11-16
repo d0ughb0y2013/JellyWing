@@ -2,9 +2,9 @@
 
 Status: publishing is built, and so is a twin API that signs users in, lets them browse,
 and plays by handing out links to the files. The web client is published too, so opening
-the twin's address in a browser gives the same client as at home. It can be deployed to
-AWS with the templates in `deploy/cloud-twin/`. Play state sync and invitations are not
-built. See
+the twin's address in a browser gives the same client as at home. What is watched on the
+twin comes home and the other way round, along with favorites and watchlists. It can be
+deployed to AWS with the templates in `deploy/cloud-twin/`. Invitations are not built. See
 [Build order](#build-order) for where things stand.
 
 ## Goal
@@ -85,8 +85,22 @@ step and nothing to scale.
 
 ## Play state
 
-Progress and watched state are recorded per user and item with a timestamp. The agent
-syncs both ways and the newer timestamp wins. Watchlists sync the same way.
+Each user has one file in the store, `state/<user id>.json`, holding for each item whether
+it was watched, where it stopped, whether it is a favorite, and whether it is on the
+watchlist. The twin changes it as people watch. Resume, next up and stats on the twin are
+worked out from it.
+
+The home server syncs every 15 minutes (the scheduled task *Sync play state with cloud
+twin*). It remembers what each side looked like after the last sync, so it can tell which
+side changed:
+
+- Changed on the twin only: brought home.
+- Changed at home only: sent to the twin.
+- Changed on both: the twin's change stands unless the item was played at home after it.
+
+Only published items are synced. Both sides write the file with a check that it has not
+changed since it was read, and try again if it has, so a report from a player and a sync
+at the same moment do not overwrite each other. `twin:playState=false` turns the sync off.
 
 ## Accounts
 
@@ -144,8 +158,8 @@ aws cloudformation package --template-file deploy/cloud-twin/twin-api.yaml --s3-
 aws cloudformation deploy --stack-name jellywing-twin-api --template-file twin-api.packaged.yaml --capabilities CAPABILITY_IAM --parameter-overrides BucketName=<bucket>
 ```
 
-The stack's `Url` output is the server address to give apps. The function may only read
-the bucket. The secret that signs access tokens is generated in Secrets Manager.
+The stack's `Url` output is the server address to give apps. The function may read the
+bucket and write only under `state/`, where play state is kept. The secret that signs access tokens is generated in Secrets Manager.
 
 Things to know about this deployment:
 
@@ -170,11 +184,10 @@ carry its own license.
    [Publishing today](#publishing-today).
 2. **Done.** Twin API for sign-in, browsing and artwork, in `twin/`, deployable as a
    Lambda function. The web client is published with the library and served by the twin;
-   sign-in, browsing, search and playing have been checked in a browser. Lists that need
-   play state (resume, next up, favorites, watchlist, stats) are empty there until step 4.
-3. **Partly done.** Playback through signed links works. Progress reports are accepted
-   and dropped.
-4. Play state and watchlist sync in both directions.
+   sign-in, browsing, search and playing have been checked in a browser.
+3. **Done.** Playback through signed links, with progress kept.
+4. **Done.** Play state, favorites and watchlists sync in both directions. What it does not
+   do: push a change to other open devices as it happens.
 5. Invitations.
 
 ## Decisions made
@@ -194,11 +207,12 @@ no default schedule and does nothing until it is set up.
 | `twin:libraries` | Names of the libraries to publish, separated by commas |
 | `twin:s3:endpoint` | Address of the S3-compatible store, for example `https://<account>.r2.cloudflarestorage.com` |
 | `twin:s3:bucket` | The bucket to publish into |
-| `twin:s3:accessKeyId`, `twin:s3:secretAccessKey` | The store's credentials |
+| `twin:s3:accessKeyId`, `twin:s3:secretAccessKey` | The store's credentials. They need to write and delete everywhere, and to read under `state/` |
 | `twin:s3:sessionToken` | The session token, when the credentials are temporary ones |
 | `twin:s3:region` | The region; `auto` if not set, which suits stores without regions |
 | `twin:folder` | A local folder to publish into instead of a store, for trying it out |
 | `twin:webClient` | Set to `false` to leave the web client out. It is published otherwise |
+| `twin:playState` | Set to `false` to stop syncing play state. It is synced otherwise |
 
 Settings are read from the environment with the prefix `JELLYFIN_` and `__` between the
 parts, for example `JELLYFIN_twin__s3__bucket`. Keep the credentials in the environment of
@@ -220,6 +234,7 @@ What lands in the store:
 | `catalog/all.json` | Every record in one file, which is what the twin API reads |
 | `auth/users.json` | Each enabled user's id, name and password hash. Never a password |
 | `web/...` | The server's web client, file for file, which the twin serves at `/web/` |
+| `state/<user id>.json` | That user's play state and watchlist. Written by the twin and by the server's sync |
 
 Movies, series, seasons and episodes are published. A video that still needs an optimized
 version is asked for one and published on a later run. Only what changed since the last

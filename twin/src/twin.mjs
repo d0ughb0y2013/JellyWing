@@ -4,6 +4,8 @@
 // It is written against web-standard Request and Response so the same code runs behind
 // a cloud function, in a worker, and in the local server in local.mjs.
 
+import { createPlayState, episodesUnder, nextUp, resumeItems, userDataOf, viewingStats, watchlistItems } from './playstate.mjs';
+
 const encoder = new TextEncoder();
 const VIDEO_TYPES = ['Movie', 'Episode'];
 const CACHE_MS = 60_000;
@@ -61,6 +63,8 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
     }
 
     const cache = {};
+    const playState = createPlayState({ store, now });
+    const NO_STATE = { Items: {}, Watchlist: {} };
     let serverId;
 
     async function cached(key) {
@@ -168,7 +172,7 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
         };
     }
 
-    async function itemDto(record, catalog) {
+    async function itemDto(record, catalog, state = NO_STATE) {
         const id = cleanId(record.Id);
         const isVideo = VIDEO_TYPES.includes(record.Type);
         const series = record.SeriesId && catalog.find(r => sameId(r.Id, record.SeriesId));
@@ -205,7 +209,7 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
             CanDelete: false,
             CanDownload: false,
             PlayAccess: 'Full',
-            UserData: { Key: id, Played: false, PlaybackPositionTicks: 0, PlayCount: 0, IsFavorite: false }
+            UserData: userDataOf(state, record, catalog)
         };
 
         if (series) {
@@ -260,7 +264,7 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
         parentindexnumber: r => r.ParentIndexNumber ?? 0
     };
 
-    async function listItems(catalog, query) {
+    async function listItems(catalog, query, state = NO_STATE) {
         const get = name => query.get(name) ?? query.get(name[0].toLowerCase() + name.slice(1));
         const types = (get('IncludeItemTypes') || '').split(',').map(t => t.trim()).filter(Boolean);
         const recursive = (get('Recursive') || '').toLowerCase() === 'true';
@@ -268,10 +272,17 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
         const ids = (get('Ids') || '').split(',').filter(Boolean);
         let items = catalog.filter(r => r.Type !== 'Episode' && r.Type !== 'Movie' || r.MediaKey);
 
-        const filters = (get('Filters') || '').toLowerCase();
-        if (/isfavorite|isresumable|isplayed|likes/.test(filters) || (get('IsFavorite') || '').toLowerCase() === 'true') {
-            items = [];
-        }
+        const filters = (get('Filters') || '').toLowerCase().split(',').map(f => f.trim());
+        const flag = name => (get(name) || '').toLowerCase();
+        const data = r => userDataOf(state, r, catalog);
+        if (filters.includes('isfavorite') || flag('IsFavorite') === 'true') items = items.filter(r => data(r).IsFavorite);
+        if (filters.includes('isresumable')) items = items.filter(r => data(r).PlaybackPositionTicks > 0);
+        if (filters.includes('isplayed') || flag('IsPlayed') === 'true') items = items.filter(r => data(r).Played);
+        if (filters.includes('isunplayed') || flag('IsPlayed') === 'false') items = items.filter(r => !data(r).Played);
+        if (filters.includes('likes') || filters.includes('dislikes')) items = [];
+
+        // Everything published is video; a request for music or books gets nothing.
+        if (!wantsVideo(get('MediaTypes'))) items = [];
 
         if (ids.length) {
             items = items.filter(r => ids.some(id => sameId(id, r.Id)));
@@ -299,8 +310,9 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
             items = items.filter(r => (r.Name || '').toLowerCase().includes(search));
         }
 
+        const sortKeys = { ...SORT_KEYS, dateplayed: r => data(r).LastPlayedDate || '' };
         const keys = (get('SortBy') || 'ParentIndexNumber,IndexNumber,SortName').split(',')
-            .map(k => SORT_KEYS[k.trim().toLowerCase()]).filter(Boolean);
+            .map(k => sortKeys[k.trim().toLowerCase()]).filter(Boolean);
         const direction = (get('SortOrder') || '').toLowerCase().startsWith('desc') ? -1 : 1;
         items = [...items].sort((a, b) => {
             for (const key of keys) {
@@ -315,7 +327,86 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
         const start = parseInt(get('StartIndex') || '0', 10) || 0;
         const limit = parseInt(get('Limit') || '0', 10);
         const page = items.slice(start, limit > 0 ? start + limit : undefined);
-        return { Items: await Promise.all(page.map(r => itemDto(r, catalog))), TotalRecordCount: total, StartIndex: start };
+        return { Items: await Promise.all(page.map(r => itemDto(r, catalog, state))), TotalRecordCount: total, StartIndex: start };
+    }
+
+    const wantsVideo = mediaTypes => !mediaTypes || mediaTypes.toLowerCase().split(',').includes('video');
+
+    // A list that is already in its final order, cut to the page asked for.
+    async function page(records, catalog, state, query) {
+        const get = name => query.get(name) ?? query.get(name[0].toLowerCase() + name.slice(1));
+        if (!wantsVideo(get('MediaTypes'))) records = [];
+        const start = parseInt(get('StartIndex') || '0', 10) || 0;
+        const limit = parseInt(get('Limit') || '0', 10);
+        const cut = records.slice(start, limit > 0 ? start + limit : undefined);
+        return { Items: await Promise.all(cut.map(r => itemDto(r, catalog, state))), TotalRecordCount: records.length, StartIndex: start };
+    }
+
+    // Play state: what was watched, where it stopped, favorites and the watchlist.
+    async function stateRoutes(route, { request, catalog, url, segments, lower, method, user, state }) {
+        const last = lower[lower.length - 1];
+        const find = id => catalog.find(r => sameId(r.Id, id));
+
+        if (method === 'POST' && lower[0] === 'sessions' && lower[1] === 'playing') {
+            const event = { 2: 'start', 3: { progress: 'progress', stopped: 'stop' }[lower[2]] }[lower.length];
+            let body = {};
+            try {
+                body = await request.json();
+            } catch {
+                // A report with no body says nothing.
+            }
+
+            const record = find(String(body.ItemId || ''));
+            if (event && record?.MediaKey) {
+                // A lost report is not worth failing the player over; the next one catches up.
+                await playState.report(user.Id, record, Number(body.PositionTicks), event)
+                    .catch(error => console.warn('[twin] a playback report was not saved:', error.message));
+            }
+
+            return empty();
+        }
+
+        const changes = method === 'POST' || method === 'DELETE';
+        if (changes && (lower.includes('userplayeditems') || lower.includes('playeditems'))) {
+            const record = find(last);
+            if (!record) return notFound();
+            const ids = record.Type === 'Series' || record.Type === 'Season' ? episodesUnder(record, catalog).map(r => r.Id) : [record.Id];
+            return json(userDataOf(await playState.setPlayed(user.Id, ids, method === 'POST'), record, catalog));
+        }
+
+        if (changes && (lower.includes('userfavoriteitems') || lower.includes('favoriteitems'))) {
+            const record = find(last);
+            if (!record) return notFound();
+            return json(userDataOf(await playState.setFavorite(user.Id, record.Id, method === 'POST'), record, catalog));
+        }
+
+        if (changes && lower[0] === 'userwatchlistitems' && lower.length === 2) {
+            const record = find(last);
+            if (!record) return notFound();
+            await playState.setWatchlist(user.Id, record.Id, method === 'POST');
+            return empty();
+        }
+
+        if (method !== 'GET') return null;
+
+        if (route('GET', 'userwatchlistitems')) return json(await page(watchlistItems(state, catalog), catalog, state, url.searchParams));
+        if (last === 'resume') return json(await page(resumeItems(state, catalog), catalog, state, url.searchParams));
+        if (route('GET', 'shows', 'nextup')) {
+            const seriesId = url.searchParams.get('SeriesId') || url.searchParams.get('seriesId');
+            return json(await page(nextUp(state, catalog, seriesId), catalog, state, url.searchParams));
+        }
+
+        if (route('GET', 'useritems', '*', 'userdata')) {
+            const record = find(segments[1]);
+            return record ? json(userDataOf(state, record, catalog)) : notFound();
+        }
+
+        if (route('GET', 'userstats')) {
+            const year = parseInt(url.searchParams.get('year') || url.searchParams.get('Year') || '', 10) || null;
+            return json(viewingStats(state, catalog, year, now()));
+        }
+
+        return null;
     }
 
     async function views(catalog) {
@@ -372,11 +463,10 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
     }
 
     const emptyList = () => ({ Items: [], TotalRecordCount: 0, StartIndex: 0 });
-    const noUserData = id => ({ Key: cleanId(id), Played: false, PlaybackPositionTicks: 0, PlayCount: 0, IsFavorite: false });
 
     // What an app asks for beyond browsing and playing. Most of it depends on things the
     // twin does not hold yet, so the honest answer is "none", in the shape the app expects.
-    function extras(route, { catalog, url, segments, lower, method }) {
+    function extras(route, { catalog, url, segments, lower, method, state }) {
         const last = lower[lower.length - 1];
 
         if (route('GET', 'system', 'info')) {
@@ -423,13 +513,13 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
                 Limit: url.searchParams.get('Limit') || url.searchParams.get('limit') || '16'
             });
             if (!query.get('ParentId')) query.delete('ParentId');
-            return listItems(catalog, query).then(result => json(result.Items));
+            return listItems(catalog, query, state).then(result => json(result.Items));
         }
 
         if (method === 'GET' && lower[0] === 'items' && lower.length === 3 && last === 'ancestors') {
             const record = catalog.find(r => sameId(r.Id, segments[1]));
             const chain = [record?.SeasonId, record?.SeriesId].map(id => id && catalog.find(r => sameId(r.Id, id))).filter(Boolean);
-            return Promise.all(chain.map(r => itemDto(r, catalog))).then(async items => {
+            return Promise.all(chain.map(r => itemDto(r, catalog, state))).then(async items => {
                 const library = record && (await views(catalog)).Items.find(v => v.Name === record.Library);
                 return json(library ? [...items, library] : items);
             });
@@ -444,16 +534,8 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
         }
 
         if (route('GET', 'search', 'hints')) return json({ SearchHints: [], TotalRecordCount: 0 });
-        if (route('GET', 'userstats')) {
-            return json({ Year: new Date(now()).getUTCFullYear(), Years: [], Movies: 0, Episodes: 0, WatchTimeTicks: 0, BusiestMonth: null, TopSeries: [], TopGenres: [] });
-        }
 
         if (method === 'GET' && lower[0] === 'items' && last === 'optimizedversion') return json({ State: 'NotNeeded' });
-
-        // Marking something watched or a favorite is answered, not stored.
-        if ((method === 'POST' || method === 'DELETE') && ['userplayeditems', 'userfavoriteitems', 'userwatchlistitems'].some(p => lower.includes(p))) {
-            return lower.includes('userwatchlistitems') ? empty() : json(noUserData(segments[segments.length - 1]));
-        }
 
         if (method === 'GET' && ['specialfeatures', 'localtrailers', 'groupingoptions', 'criticreviews'].includes(last)) return json([]);
         if (route('GET', 'sessions') || route('GET', 'syncplay', 'list')) return json([]);
@@ -464,8 +546,8 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
             return new Response(new Uint8Array(size), { status: 200, headers: { 'Content-Type': 'application/octet-stream', ...cors } });
         }
 
-        const emptyLists = ['resume', 'nextup', 'upcoming', 'similar', 'intros', 'genres', 'studios', 'persons', 'artists',
-            'userwatchlistitems', 'playlists', 'channels', 'trailers', 'musicgenres', 'collections'];
+        const emptyLists = ['upcoming', 'similar', 'intros', 'genres', 'studios', 'persons', 'artists',
+            'playlists', 'channels', 'trailers', 'musicgenres', 'collections'];
         if (method === 'GET' && (emptyLists.includes(last) || lower[0] === 'mediasegments' || lower[0] === 'livetv')) return json(emptyList());
 
         return null;
@@ -520,7 +602,7 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
         }
 
         if (route('GET', 'quickconnect', 'enabled')) return json(false);
-        if (route('GET', 'favicon.ico')) return redirect('/web/favicon.ico');
+        if (route('GET', 'favicon.ico')) return notFound();
 
         // Live updates need a connection that stays open, which the twin does not keep.
         if (route('GET', 'socket')) return notFound();
@@ -539,15 +621,17 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
         const user = await readToken(tokenFrom(request, url));
         if (!user) return json({ error: 'Sign in first.' }, 401);
 
+        const state = await playState.load(user.Id);
+
         if (route('GET', 'users', 'me') || route('GET', 'users', '*')) return json(await userDto(user));
         if (route('GET', 'users')) return json([await userDto(user)]);
         if (route('GET', 'userviews') || route('GET', 'users', '*', 'views')) return json(await views(catalog));
-        if (route('GET', 'items') || route('GET', 'users', '*', 'items')) return json(await listItems(catalog, url.searchParams));
+        if (route('GET', 'items') || route('GET', 'users', '*', 'items')) return json(await listItems(catalog, url.searchParams, state));
 
         if (route('GET', 'items', '*') || route('GET', 'users', '*', 'items', '*')) {
             const id = segments[segments.length - 1];
             const record = catalog.find(r => sameId(r.Id, id));
-            if (record) return json(await itemDto(record, catalog));
+            if (record) return json(await itemDto(record, catalog, state));
             const library = (await views(catalog)).Items.find(v => sameId(v.Id, id));
             if (library) return json(library);
 
@@ -556,13 +640,13 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
 
         if (route('GET', 'shows', '*', 'seasons')) {
             const query = new URLSearchParams({ ParentId: segments[1], IncludeItemTypes: 'Season' });
-            return json(await listItems(catalog, query));
+            return json(await listItems(catalog, query, state));
         }
 
         if (route('GET', 'shows', '*', 'episodes')) {
             const seasonId = url.searchParams.get('seasonId') || url.searchParams.get('SeasonId');
             const query = new URLSearchParams({ ParentId: seasonId || segments[1], Recursive: 'true', IncludeItemTypes: 'Episode' });
-            return json(await listItems(catalog, query));
+            return json(await listItems(catalog, query, state));
         }
 
         if (route('POST', 'items', '*', 'playbackinfo') || route('GET', 'items', '*', 'playbackinfo')) {
@@ -576,10 +660,13 @@ export function createTwin({ store, tokenSecret, serverName = 'JellyWing', now =
             return record ? redirect(await store.signedUrl(record.MediaKey, MEDIA_LINK_SECONDS)) : notFound();
         }
 
-        // Progress is accepted and dropped until play state sync is built.
-        if (method === 'POST' && lower[0] === 'sessions' && (lower[1] === 'playing' || lower[1] === 'capabilities' || lower[1] === 'logout')) return empty();
+        const context = { request, catalog, url, segments, lower, method, user, state };
+        const answer = await stateRoutes(route, context);
+        if (answer) return answer;
 
-        return extras(route, { catalog, url, segments, lower, method, user }) ?? notFound();
+        if (method === 'POST' && lower[0] === 'sessions' && (lower[1] === 'capabilities' || lower[1] === 'logout')) return empty();
+
+        return extras(route, context) ?? notFound();
     }
 
     return {

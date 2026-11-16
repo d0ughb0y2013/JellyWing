@@ -36,4 +36,23 @@ public interface IObjectStore
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>A task.</returns>
     Task DeleteAsync(string key, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Reads a small object and the version it is at.
+    /// </summary>
+    /// <param name="key">The key.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The content and its version tag, or <c>null</c> when there is no such object.</returns>
+    Task<(byte[] Content, string Tag)?> GetAsync(string key, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Writes an object only if it is still at the version given, so a change made elsewhere in between is not lost.
+    /// </summary>
+    /// <param name="key">The key.</param>
+    /// <param name="content">The new content.</param>
+    /// <param name="contentType">The content type.</param>
+    /// <param name="tag">The version read earlier, or <c>null</c> when the object did not exist.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns><c>false</c> when the object changed in between and nothing was written.</returns>
+    Task<bool> PutIfUnchangedAsync(string key, ReadOnlyMemory<byte> content, string contentType, string? tag, CancellationToken cancellationToken);
 }

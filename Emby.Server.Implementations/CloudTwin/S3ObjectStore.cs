@@ -69,10 +69,61 @@ public class S3ObjectStore : IObjectStore
     public Task DeleteAsync(string key, CancellationToken cancellationToken)
         => SendAsync(HttpMethod.Delete, key, null, null, S3Signer.EmptyPayloadHash, cancellationToken);
 
-    private async Task SendAsync(HttpMethod method, string key, HttpContent? content, string? contentType, string payloadHash, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public async Task<(byte[] Content, string Tag)?> GetAsync(string key, CancellationToken cancellationToken)
+    {
+        using var request = CreateRequest(HttpMethod.Get, key, null, null, S3Signer.EmptyPayloadHash);
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        await ThrowUnlessSuccessAsync(response, HttpMethod.Get, key, cancellationToken).ConfigureAwait(false);
+        var content = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+        return (content, response.Headers.ETag?.ToString() ?? string.Empty);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> PutIfUnchangedAsync(string key, ReadOnlyMemory<byte> content, string contentType, string? tag, CancellationToken cancellationToken)
+    {
+        using var body = new ReadOnlyMemoryContent(content);
+        using var request = CreateRequest(HttpMethod.Put, key, body, contentType, Convert.ToHexStringLower(SHA256.HashData(content.Span)));
+        if (string.IsNullOrEmpty(tag))
+        {
+            request.Headers.TryAddWithoutValidation("If-None-Match", "*");
+        }
+        else
+        {
+            request.Headers.TryAddWithoutValidation("If-Match", tag);
+        }
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (response.StatusCode is HttpStatusCode.PreconditionFailed or HttpStatusCode.Conflict)
+        {
+            return false;
+        }
+
+        await ThrowUnlessSuccessAsync(response, HttpMethod.Put, key, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    private static async Task ThrowUnlessSuccessAsync(HttpResponseMessage response, HttpMethod method, string key, CancellationToken cancellationToken)
+    {
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        var detail = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        throw new HttpRequestException(
+            $"The store answered {(int)response.StatusCode} to {method} {key}: {(detail.Length > 300 ? detail[..300] : detail)}");
+    }
+
+    private HttpRequestMessage CreateRequest(HttpMethod method, string key, HttpContent? content, string? contentType, string payloadHash)
     {
         var url = $"{_options.S3Endpoint!.TrimEnd('/')}/{_options.S3Bucket}/{S3Signer.EncodeKey(key)}";
-        using var request = new HttpRequestMessage(method, url) { Content = content };
+        var request = new HttpRequestMessage(method, url) { Content = content };
         if (content is not null && contentType is not null)
         {
             content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
@@ -85,15 +136,18 @@ public class S3ObjectStore : IObjectStore
         }
 
         S3Signer.Sign(request, payloadHash, _options.S3Region, _options.S3AccessKeyId!, _options.S3SecretAccessKey!, DateTime.UtcNow);
+        return request;
+    }
 
+    private async Task SendAsync(HttpMethod method, string key, HttpContent? content, string? contentType, string payloadHash, CancellationToken cancellationToken)
+    {
+        using var request = CreateRequest(method, key, content, contentType, payloadHash);
         using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-        if (response.IsSuccessStatusCode || (method == HttpMethod.Delete && response.StatusCode == HttpStatusCode.NotFound))
+        if (method == HttpMethod.Delete && response.StatusCode == HttpStatusCode.NotFound)
         {
             return;
         }
 
-        var detail = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        throw new HttpRequestException(
-            $"The store answered {(int)response.StatusCode} to {method} {key}: {(detail.Length > 300 ? detail[..300] : detail)}");
+        await ThrowUnlessSuccessAsync(response, method, key, cancellationToken).ConfigureAwait(false);
     }
 }

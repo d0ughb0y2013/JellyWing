@@ -65,30 +65,42 @@ export async function presignUrl(objectUrl, credentials, expiresSeconds, now = n
     return `${url.origin}${url.pathname}?${canonicalQuery}&X-Amz-Signature=${signature}`;
 }
 
+/** The SHA-256 of some text or bytes, in hex. */
+export async function sha256Hex(content) {
+    return hex(await crypto.subtle.digest('SHA-256', typeof content === 'string' ? encoder.encode(content) : content));
+}
+
 /**
- * Builds the headers that sign a GET request with an empty body.
+ * Builds the headers that sign a request.
+ * @param {string} method GET, PUT or DELETE.
  * @param {string} objectUrl The object's address, with no query string.
  * @param {{region: string, accessKeyId: string, secretAccessKey: string, sessionToken?: string}} credentials
+ * @param {string} [payloadHash] The SHA-256 of the body in hex; the hash of nothing if there is no body.
  * @param {Date} [now]
  * @returns {Promise<Record<string, string>>}
  */
-export async function signedGetHeaders(objectUrl, credentials, now = new Date()) {
+export async function signedHeaders(method, objectUrl, credentials, payloadHash = EMPTY_PAYLOAD_HASH, now = new Date()) {
     const url = new URL(objectUrl);
     const timestamp = timestampOf(now);
     const date = timestamp.slice(0, 8);
     const scope = `${date}/${credentials.region}/s3/aws4_request`;
 
-    const headers = { host: url.host, 'x-amz-content-sha256': EMPTY_PAYLOAD_HASH, 'x-amz-date': timestamp };
+    const headers = { host: url.host, 'x-amz-content-sha256': payloadHash, 'x-amz-date': timestamp };
     if (credentials.sessionToken) {
         headers['x-amz-security-token'] = credentials.sessionToken;
     }
 
     const names = Object.keys(headers).sort();
-    const canonicalRequest = ['GET', url.pathname, '', names.map(n => `${n}:${headers[n]}\n`).join(''), names.join(';'), EMPTY_PAYLOAD_HASH].join('\n');
+    const canonicalRequest = [method, url.pathname, '', names.map(n => `${n}:${headers[n]}\n`).join(''), names.join(';'), payloadHash].join('\n');
     const stringToSign = ['AWS4-HMAC-SHA256', timestamp, scope, await sha256(canonicalRequest)].join('\n');
     const signature = await sign(credentials.secretAccessKey, date, credentials.region, stringToSign);
 
     delete headers.host;
     headers.Authorization = `AWS4-HMAC-SHA256 Credential=${credentials.accessKeyId}/${scope},SignedHeaders=${names.join(';')},Signature=${signature}`;
     return headers;
+}
+
+/** Builds the headers that sign a GET request with an empty body. */
+export function signedGetHeaders(objectUrl, credentials, now = new Date()) {
+    return signedHeaders('GET', objectUrl, credentials, EMPTY_PAYLOAD_HASH, now);
 }

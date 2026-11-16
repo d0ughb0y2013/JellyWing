@@ -72,11 +72,7 @@ public class CloudTwinPublishTask : IScheduledTask
             return;
         }
 
-        var useFolder = !string.IsNullOrEmpty(options.Folder);
-        IObjectStore store = useFolder
-            ? new FolderObjectStore(options.Folder!)
-            : new S3ObjectStore(_httpClientFactory.CreateClient(NamedClient.Default), options);
-        var target = useFolder ? "folder:" + options.Folder : $"s3:{options.S3Endpoint}/{options.S3Bucket}";
+        var (store, target) = TwinStoreFactory.Create(options, _httpClientFactory.CreateClient(NamedClient.Default));
 
         await _publisher.PublishAsync(store, target, options.Libraries, progress, cancellationToken).ConfigureAwait(false);
         if (options.PublishWebClient)

@@ -25,6 +25,7 @@ public class TwinOptions
         S3SecretAccessKey = configuration["twin:s3:secretAccessKey"];
         S3SessionToken = configuration["twin:s3:sessionToken"];
         PublishWebClient = !string.Equals(configuration["twin:webClient"], "false", StringComparison.OrdinalIgnoreCase);
+        SyncPlayState = !string.Equals(configuration["twin:playState"], "false", StringComparison.OrdinalIgnoreCase);
         Libraries = (configuration["twin:libraries"] ?? string.Empty)
             .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
     }
@@ -68,6 +69,11 @@ public class TwinOptions
     /// Gets a value indicating whether the web client is published too, so the twin can serve it. On unless set to false.
     /// </summary>
     public bool PublishWebClient { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether play state and watchlists are kept in step with the twin. On unless set to false.
+    /// </summary>
+    public bool SyncPlayState { get; }
 
     /// <summary>
     /// Gets the names of the libraries to publish. Nothing is published unless named here.
