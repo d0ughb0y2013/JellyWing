@@ -1,0 +1,409 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Tests and deploys the JellyWing cloud twin whenever its branch changes.
+
+# How it works: every ten minutes a small function asks the public repository where the
+# branch is. If that is a commit it has not tried yet, it starts a build of exactly that
+# commit. The build runs the twin's tests, deploys the store and the twin API, checks the
+# twin answers, and records the commit as deployed.
+#
+# This stack is created by hand, once, and does not update itself: whoever can push to the
+# branch can change what the twin is, but not what the pipeline may do.
+
+Parameters:
+  RepositoryUrl:
+    Type: String
+    AllowedPattern: '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+    Description: The public repository, as https://github.com/<owner>/<name> with no .git.
+  Branch:
+    Type: String
+    Default: jellywing-12
+    AllowedPattern: '^[A-Za-z0-9._/-]+$'
+  StoreStackName:
+    Type: String
+    Default: jellywing-twin-store
+  ApiStackName:
+    Type: String
+    Default: jellywing-twin-api
+  ServerName:
+    Type: String
+    Default: JellyWing Twin
+    Description: The server name apps show.
+
+Resources:
+  # The most the twin's function may ever be allowed, whatever its template says.
+  FunctionBoundary:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: s3:GetObject
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::jellywing-twin-${AWS::AccountId}-${AWS::Region}/*'
+          - Effect: Allow
+            Action: s3:PutObject
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::jellywing-twin-${AWS::AccountId}-${AWS::Region}/state/*'
+          - Effect: Allow
+            Action: s3:ListBucket
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::jellywing-twin-${AWS::AccountId}-${AWS::Region}'
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: '*'
+
+  BuildLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 90
+
+  BuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DeployTheTwinAndNothingElse
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: BuildLog
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub '${BuildLogs.Arn}:*'
+              - Sid: TheTwoStacks
+                Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStackResources
+                  - cloudformation:GetTemplate
+                  - cloudformation:GetTemplateSummary
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${StoreStackName}/*'
+                  - !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ApiStackName}/*'
+              - Sid: CheckTemplates
+                Effect: Allow
+                Action:
+                  - cloudformation:ValidateTemplate
+                  - cloudformation:GetTemplateSummary
+                Resource: '*'
+              - Sid: TheBucketItself
+                Effect: Allow
+                Action:
+                  - s3:CreateBucket
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                  - s3:GetBucketPolicy
+                  - s3:PutBucketPolicy
+                  - s3:DeleteBucketPolicy
+                  - s3:GetBucketPublicAccessBlock
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:GetBucketOwnershipControls
+                  - s3:PutBucketOwnershipControls
+                  - s3:GetEncryptionConfiguration
+                  - s3:PutEncryptionConfiguration
+                  - s3:GetLifecycleConfiguration
+                  - s3:PutLifecycleConfiguration
+                  - s3:GetBucketTagging
+                  - s3:PutBucketTagging
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::jellywing-twin-${AWS::AccountId}-${AWS::Region}'
+              - Sid: PackagedCode
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::jellywing-twin-${AWS::AccountId}-${AWS::Region}/deploy-artifacts/*'
+              - Sid: TheFunction
+                Effect: Allow
+                Action:
+                  - lambda:CreateFunction
+                  - lambda:DeleteFunction
+                  - lambda:GetFunction
+                  - lambda:GetFunctionConfiguration
+                  - lambda:GetFunctionCodeSigningConfig
+                  - lambda:GetRuntimeManagementConfig
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                  - lambda:ListTags
+                  - lambda:TagResource
+                  - lambda:UntagResource
+                  - lambda:GetPolicy
+                  - lambda:AddPermission
+                  - lambda:RemovePermission
+                  - lambda:CreateFunctionUrlConfig
+                  - lambda:GetFunctionUrlConfig
+                  - lambda:UpdateFunctionUrlConfig
+                  - lambda:DeleteFunctionUrlConfig
+                Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiStackName}-*'
+              - Sid: ReadTheFunctionRole
+                Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListRolePolicies
+                  - iam:ListAttachedRolePolicies
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:UpdateAssumeRolePolicy
+                  - iam:DeleteRole
+                Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ApiStackName}-*'
+              # The function's role can only be made or changed while it carries the boundary above,
+              # so a template cannot give the function more than the boundary allows.
+              - Sid: ChangeTheFunctionRoleOnlyUnderTheBoundary
+                Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:PutRolePermissionsBoundary
+                Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ApiStackName}-*'
+                Condition:
+                  StringEquals:
+                    iam:PermissionsBoundary: !Ref FunctionBoundary
+              - Sid: HandTheRoleToLambdaOnly
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ApiStackName}-*'
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: lambda.amazonaws.com
+              - Sid: TheTokenSecret
+                Effect: Allow
+                Action:
+                  - secretsmanager:CreateSecret
+                  - secretsmanager:DeleteSecret
+                  - secretsmanager:DescribeSecret
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:PutSecretValue
+                  - secretsmanager:UpdateSecret
+                  - secretsmanager:TagResource
+                  - secretsmanager:UntagResource
+                Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:TokenSecret-*'
+              - Sid: MakeASecret
+                Effect: Allow
+                Action: secretsmanager:GetRandomPassword
+                Resource: '*'
+              - Sid: RecordWhatWasDeployed
+                Effect: Allow
+                Action: ssm:PutParameter
+                Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/deployed'
+
+  Build:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Description: Tests and deploys the JellyWing cloud twin from one commit.
+      ServiceRole: !GetAtt BuildRole.Arn
+      ConcurrentBuildLimit: 1
+      TimeoutInMinutes: 20
+      Artifacts:
+        Type: NO_ARTIFACTS
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Ref BuildLogs
+      Environment:
+        Type: ARM_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux-aarch64-standard:3.0
+        EnvironmentVariables:
+          - { Name: REPO_URL, Value: !Ref RepositoryUrl }
+          - { Name: BRANCH, Value: !Ref Branch }
+          - { Name: COMMIT, Value: '' }
+          - { Name: STORE_STACK, Value: !Ref StoreStackName }
+          - { Name: API_STACK, Value: !Ref ApiStackName }
+          - { Name: SERVER_NAME, Value: !Ref ServerName }
+          - { Name: BOUNDARY_ARN, Value: !Ref FunctionBoundary }
+          - { Name: DEPLOYED_PARAMETER, Value: !Sub '/${AWS::StackName}/deployed' }
+      Source:
+        Type: NO_SOURCE
+        # Kept here and not in the repository, so the steps are part of the pipeline, not of a commit.
+        BuildSpec: |
+          version: 0.2
+          env:
+            shell: bash
+          phases:
+            install:
+              runtime-versions:
+                nodejs: 22
+            build:
+              commands:
+                - |
+                  set -euo pipefail
+
+                  # Started by hand, with no commit named: take the branch as it is now.
+                  if [ -z "$COMMIT" ]; then
+                    COMMIT=$(git ls-remote "$REPO_URL" "refs/heads/$BRANCH" | cut -f1)
+                  fi
+                  [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "No commit to build."; exit 1; }
+                  echo "Building $COMMIT"
+
+                  git init -q src
+                  cd src
+                  git remote add origin "$REPO_URL"
+                  git fetch -q --depth 1 origin "$COMMIT"
+                  git checkout -q FETCH_HEAD
+                  [ "$(git rev-parse HEAD)" = "$COMMIT" ]
+
+                  (cd twin && node --test)
+
+                  aws cloudformation deploy --stack-name "$STORE_STACK" \
+                    --template-file deploy/cloud-twin/s3-store.yaml --no-fail-on-empty-changeset
+                  BUCKET=$(aws cloudformation describe-stacks --stack-name "$STORE_STACK" \
+                    --query "Stacks[0].Outputs[?OutputKey=='BucketName'].OutputValue" --output text)
+
+                  aws cloudformation package --template-file deploy/cloud-twin/twin-api.yaml \
+                    --s3-bucket "$BUCKET" --s3-prefix deploy-artifacts \
+                    --output-template-file /tmp/twin-api.packaged.yaml > /dev/null
+                  aws cloudformation deploy --stack-name "$API_STACK" \
+                    --template-file /tmp/twin-api.packaged.yaml --capabilities CAPABILITY_IAM \
+                    --no-fail-on-empty-changeset \
+                    --parameter-overrides "BucketName=$BUCKET" "ServerName=$SERVER_NAME" "PermissionsBoundaryArn=$BOUNDARY_ARN"
+
+                  # The twin must answer, and must still ask for a sign-in.
+                  URL=$(aws cloudformation describe-stacks --stack-name "$API_STACK" \
+                    --query "Stacks[0].Outputs[?OutputKey=='Url'].OutputValue" --output text)
+                  open=$(curl -s -o /dev/null -w '%{http_code}' "$URL"System/Info/Public)
+                  closed=$(curl -s -o /dev/null -w '%{http_code}' "$URL"Users/Me)
+                  echo "Public information answered $open; a request with no sign-in answered $closed."
+                  [ "$open" = 200 ] && [ "$closed" = 401 ]
+
+                  aws ssm put-parameter --name "$DEPLOYED_PARAMETER" --value "$COMMIT" --type String --overwrite > /dev/null
+                  echo "Deployed $COMMIT"
+
+  WatcherLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 30
+
+  WatcherRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StartABuildForANewCommit
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub '${WatcherLogs.Arn}:*'
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/attempted'
+              - Effect: Allow
+                Action: codebuild:StartBuild
+                Resource: !GetAtt Build.Arn
+
+  Watcher:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Starts a build of the JellyWing cloud twin when its branch has a commit that was not tried yet.
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: index.handler
+      Role: !GetAtt WatcherRole.Arn
+      Timeout: 30
+      LoggingConfig:
+        LogGroup: !Ref WatcherLogs
+      Environment:
+        Variables:
+          REPO_URL: !Ref RepositoryUrl
+          BRANCH: !Ref Branch
+          PROJECT: !Ref Build
+          ATTEMPTED_PARAMETER: !Sub '/${AWS::StackName}/attempted'
+      Code:
+        ZipFile: |
+          const { SSMClient, GetParameterCommand, PutParameterCommand } = require('@aws-sdk/client-ssm');
+          const { CodeBuildClient, StartBuildCommand } = require('@aws-sdk/client-codebuild');
+
+          const ssm = new SSMClient();
+          const codebuild = new CodeBuildClient();
+          const { REPO_URL, BRANCH, PROJECT, ATTEMPTED_PARAMETER } = process.env;
+
+          // Where the branch is, asked the way git asks, so no account or token is needed.
+          async function head() {
+            const response = await fetch(`${REPO_URL}.git/info/refs?service=git-upload-pack`, { headers: { 'User-Agent': 'git/2.0' } });
+            if (!response.ok) throw new Error(`The repository answered ${response.status}.`);
+            const line = (await response.text()).split('\n').find(l => l.endsWith(` refs/heads/${BRANCH}`));
+            const commit = line && line.slice(-(` refs/heads/${BRANCH}`.length + 40), -` refs/heads/${BRANCH}`.length);
+            if (!/^[0-9a-f]{40}$/.test(commit || '')) throw new Error(`Branch ${BRANCH} was not found.`);
+            return commit;
+          }
+
+          async function attempted() {
+            try {
+              return (await ssm.send(new GetParameterCommand({ Name: ATTEMPTED_PARAMETER }))).Parameter.Value;
+            } catch (error) {
+              if (error.name === 'ParameterNotFound') return null;
+              throw error;
+            }
+          }
+
+          exports.handler = async () => {
+            const commit = await head();
+            if (commit === await attempted()) return { commit, started: false };
+
+            // Marked only once the build has started, so a build that could not start is tried again.
+            const { build } = await codebuild.send(new StartBuildCommand({
+              projectName: PROJECT,
+              environmentVariablesOverride: [{ name: 'COMMIT', value: commit, type: 'PLAINTEXT' }]
+            }));
+            await ssm.send(new PutParameterCommand({ Name: ATTEMPTED_PARAMETER, Value: commit, Type: 'String', Overwrite: true }));
+            console.log(`Started ${build.id} for ${commit}`);
+            return { commit, started: true, build: build.id };
+          };
+
+  Every10Minutes:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Checks the JellyWing branch for a new commit.
+      ScheduleExpression: rate(10 minutes)
+      Targets:
+        - Id: watcher
+          Arn: !GetAtt Watcher.Arn
+
+  ScheduleMayRunWatcher:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Watcher
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt Every10Minutes.Arn
+
+Outputs:
+  BuildProject:
+    Description: The build that tests and deploys. Start it by hand to deploy the branch as it is now.
+    Value: !Ref Build
+  DeployedParameter:
+    Description: The commit that is live.
+    Value: !Sub '/${AWS::StackName}/deployed'
+  AttemptedParameter:
+    Description: The last commit a build was started for. Differs from the deployed one while a build runs or after one failed.
+    Value: !Sub '/${AWS::StackName}/attempted'

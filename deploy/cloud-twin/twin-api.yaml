@@ -9,6 +9,13 @@ Parameters:
     Type: String
     Default: JellyWing
     Description: The server name apps show.
+  PermissionsBoundaryArn:
+    Type: String
+    Default: ''
+    Description: A policy that caps what the function's role may do. The pipeline sets this; leave it empty otherwise.
+
+Conditions:
+  HasBoundary: !Not [!Equals [!Ref PermissionsBoundaryArn, '']]
 
 Resources:
   TokenSecret:
@@ -29,6 +36,7 @@ Resources:
             Principal:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
+      PermissionsBoundary: !If [HasBoundary, !Ref PermissionsBoundaryArn, !Ref 'AWS::NoValue']
       ManagedPolicyArns:
         - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
       Policies:

@@ -178,6 +178,32 @@ aws cloudformation deploy --stack-name jellywing-twin-api --template-file twin-a
 The stack's `Url` output is the server address to give apps. The function may read the
 bucket and write only under `state/`, where play state is kept. The secret that signs access tokens is generated in Secrets Manager.
 
+### Deploying from the repository
+
+`deploy/cloud-twin/pipeline.yaml` sets up a small pipeline, so that a push to the branch is
+what deploys the twin. It needs no access to the repository beyond what anyone has to a
+public one. Create it once:
+
+```bash
+aws cloudformation deploy --stack-name jellywing-twin-pipeline --template-file deploy/cloud-twin/pipeline.yaml --capabilities CAPABILITY_IAM --parameter-overrides RepositoryUrl=https://github.com/<owner>/<name>
+```
+
+Every ten minutes it asks the repository where the branch is. For a commit it has not tried
+it starts a build of exactly that commit, which runs the twin's tests, deploys the store
+and the twin API, checks that the twin answers and still asks for a sign-in, and records
+the commit. Nothing is deployed if a step fails, and a commit that failed is not tried
+again; push a fix, or start the build by hand to retry.
+
+Where things stand is in two parameters, `/jellywing-twin-pipeline/attempted` and
+`/jellywing-twin-pipeline/deployed`: the same commit in both means the branch is live. The
+build's log is in CodeBuild.
+
+What it may do is fixed by this stack, not by the branch. The build can change the two twin
+stacks and their resources and nothing else in the account, and it can only give the
+twin's function a role that carries a boundary: read the bucket, write under `state/`, and
+log. The pipeline does not update itself; changing `pipeline.yaml` takes the command above
+again. It does not build or publish the web client; the home server does that.
+
 Things to know about this deployment:
 
 - The address is public and sign-in is the only protection. Wrong passwords are limited to
