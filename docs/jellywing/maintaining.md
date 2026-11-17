@@ -40,9 +40,14 @@ added to the other.
 
 ## Logo and icons
 
-The logo files are SVGs in `webclient/src/assets/img/jellywing/`. The browser tab and
-home-screen icons in its `favicons/` folder are rendered from `app-icon.svg`. After
-changing that file, from `webclient/`:
+The logo files are SVGs in `webclient/src/assets/img/jellywing/`: `icon.svg` is the mark,
+`app-icon.svg` is the mark on a dark square, and the two banners add the name. The name is
+drawn as outlines of Noto Sans Bold, so it looks the same on every device. The mark is
+JellyWing's own drawing and uses none of Jellyfin's logo files.
+
+The icons in the `favicons/` folder are rendered from those files: the browser tab icon from
+`icon.svg`, the home-screen icons from `app-icon.svg`. After changing either, from
+`webclient/`:
 
 ```bash
 python3 scripts/makeJellyWingIcons.py

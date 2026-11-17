@@ -44,7 +44,7 @@ def main():
     for name, size in TOUCH_ICONS.items():
         render("app-icon.svg", size, os.path.join(OUTPUT_DIR, name))
     render("app-icon.svg", 192, os.path.join(OUTPUT_DIR, "favicon.png"))
-    write_ico(os.path.join(OUTPUT_DIR, "favicon.ico"), [(size, render("app-icon.svg", size)) for size in ICO_SIZES])
+    write_ico(os.path.join(OUTPUT_DIR, "favicon.ico"), [(size, render("icon.svg", size)) for size in ICO_SIZES])
 
 
 if __name__ == "__main__":
