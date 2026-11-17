@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="JellyWing">
   <defs><linearGradient id="w" gradientUnits="userSpaceOnUse" x1="80" y1="430" x2="440" y2="80"><stop offset="0" stop-color="#12B8A0"/><stop offset="0.55" stop-color="#35B4F4"/><stop offset="1" stop-color="#7A7CFF"/></linearGradient><linearGradient id="b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#18242F"/><stop offset="1" stop-color="#0B1118"/></linearGradient></defs>
   <rect width="512" height="512" fill="url(#b)"/>
-  <g transform="translate(256 256) scale(0.8) translate(-267 -245)"><g fill="url(#w)" stroke="url(#w)" stroke-width="20" stroke-linejoin="round"><path d="M88 408C88 250 215 105 420 82C330 130 200 230 168 408Z"/><path d="M204 408C230 262 318 196 446 222C374 246 322 284 290 334C336 326 380 334 418 354C344 384 270 402 204 408Z"/></g></g>
+  <g transform="translate(256 256) scale(0.8) translate(-265 -244)"><g fill="url(#w)" stroke="url(#w)" stroke-width="20" stroke-linejoin="round"><path d="M80 408C80 244 210 100 424 80C330 132 206 236 180 408Z"/><path d="M220 408C226 300 314 218 450 218C378 250 330 318 318 408Z"/></g></g>
 </svg>
